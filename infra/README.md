@@ -7,8 +7,8 @@
 
 | 구분 | 만드는 곳 | 리소스 |
 |---|---|---|
-| 데이터 | 이 폴더의 스크립트 | S3 버킷, DynamoDB 테이블, S3 Vectors, Bedrock KB, KB용 IAM 역할, GitHub OIDC |
-| 앱 | 저장소 루트의 `template.yaml` (SAM) | Lambda, HTTP API, Lambda 실행 역할 |
+| 데이터 | 이 폴더의 스크립트 | S3 버킷, DynamoDB 테이블, S3 Vectors, Bedrock KB, KB용 IAM 역할, GitHub OIDC, Actions 시크릿 |
+| 앱 | 저장소 루트의 `template.yaml` (SAM) | Lambda, HTTP API, Lambda 실행 역할, 로그 그룹 |
 
 데이터 쪽을 스크립트로 뺀 이유는 두 가지예요. 동아리 KB를 하나 더 붙일 때 앱을 다시 배포하지 않아도 되고, 앱 스택을 지웠다 다시 만들어도 문서와 벡터가 남습니다.
 
@@ -45,7 +45,7 @@ cd infra
 bash run_all.sh
 ```
 
-하나씩 돌릴 때는 순서를 지켜 주세요: `00_check` → `02_storage` → `03_vector_bucket` → `04_add_kb`(KB마다) → `05_github_oidc`.
+하나씩 돌릴 때는 순서를 지켜 주세요: `00_check` → `02_storage` → `03_vector_bucket` → `04_add_kb`(KB마다) → `05_github_oidc` → `06_github_actions`.
 `01_budget`은 `run_all.sh`에서 뺐습니다. 이 계정은 학교 AWS Organization 소속이라 서비스 제어 정책(SCP)이 예산(Budgets)을 막습니다.
 이미 있는 리소스는 건너뛰기 때문에, 중간에 멈추면 원인만 고치고 다시 돌리면 됩니다.
 만든 리소스의 ID는 `.state/outputs.env`에 적힙니다. 태그로 확인하려면 `bash list_tagged.sh`를 실행하세요.
@@ -54,8 +54,17 @@ bash run_all.sh
 
 1. **Anthropic 모델 사용 양식**: Bedrock 콘솔(서울) → 모델 카탈로그 → Claude 모델 선택 → 사용 사례 양식 제출 → 플레이그라운드에서 질문 한 번.
 2. **GitHub 저장소**: 저장소 루트에서 `git init` → 첫 커밋 → `gh repo create JJong2003/club-rag-hub --public --source . --push`.
-3. **Actions 시크릿**: 저장소 Settings → Secrets and variables → Actions → Secrets에 `AWS_ROLE_ARN`을 등록합니다. 값은 `05_github_oidc.sh`가 마지막에 출력해요. 공개 저장소라 계정 ID가 Actions 로그에 찍히지 않도록 Variables가 아니라 Secrets에 둡니다. 같은 화면 근처의 Branches에서 main 보호 규칙도 겁니다.
+3. **Actions 시크릿**: `bash 06_github_actions.sh`를 실행합니다(`gh` 로그인 필요). `05`가 `.state/outputs.env`에 적어 둔 `DEPLOY_ROLE_ARN`을 저장소 Secrets의 `AWS_ROLE_ARN`으로 등록하므로 직접 입력할 값은 없어요. 공개 저장소라 계정 ID가 Actions 로그에 찍히지 않도록 Variables가 아니라 Secrets에 둡니다. main 브랜치 보호는 하지 않습니다(혼자 하는 프로젝트, 11/23 결정).
 4. **문서 올리기**: 조문 단위 `.md`와 `.metadata.json`은 `school/kb/`에, ANA 매뉴얼은 `clubs/ana/kb/`에 올립니다. 동기화 스크립트는 다음에 추가합니다.
+
+## 앱 배포 (SAM)
+
+앱은 저장소 루트의 `template.yaml`로 `club-rag-hub-app` 스택에 배포합니다. Lambda, HTTP API, Lambda 실행 역할, 로그 그룹(14일 보관)이 들어 있어요.
+
+- **평소**: `template.yaml`, `src/`, `tests/`를 고쳐서 main에 push하면 `.github/workflows/deploy.yml`이 테스트 → `sam deploy` → `/health` 확인까지 합니다. Actions 화면에서 수동으로 돌릴 수도 있어요(workflow_dispatch).
+- **이 PC에서 바로**: `bash deploy_app.sh`. 같은 인자로 배포하고 `/health`를 부른 뒤 주소를 `.state/outputs.env`의 `HEALTH_URL`에 적습니다.
+- `GET /health`는 S3 문서 버킷 조회, kb-registry 조회, Titan 임베딩(1024차원) 호출을 한 번에 확인합니다. 모두 성공하면 200, 하나라도 실패하면 503이에요. 응답에는 계정 ID가 들어가지 않습니다.
+- 배포 역할은 스택 이름(`club-rag-hub-app-*`)으로 시작하는 리소스만 다룹니다. 그래서 Lambda 이름은 `${AWS::StackName}-<이름>`으로 짓고, 실행 역할 이름은 비워 둡니다(CloudFormation이 스택 이름으로 시작하게 지어 줌). 관리형 정책은 `AWSLambdaBasicExecutionRole`만 붙일 수 있어요.
 
 ## 주의
 

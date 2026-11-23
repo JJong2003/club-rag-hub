@@ -1,0 +1,82 @@
+# main에 앱 코드가 push되면 테스트 → SAM 배포 → /health 확인 순서로 돌아갑니다.
+# AWS 키는 쓰지 않습니다. GitHub OIDC로 배포 역할(club-rag-hub-github-deploy)을 잠깐 빌립니다.
+# 필요한 저장소 설정은 Secrets의 AWS_ROLE_ARN 하나입니다 (infra/06_github_actions.sh가 등록).
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - template.yaml
+      - src/**
+      - tests/**
+      - pyproject.toml
+      - requirements-dev.txt
+      - .github/workflows/deploy.yml
+  workflow_dispatch:   # Actions 화면에서 수동 실행
+
+permissions:
+  contents: read
+  id-token: write      # OIDC 토큰 발급
+
+concurrency:
+  group: deploy-app
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-northeast-2
+  STACK_NAME: club-rag-hub-app
+  PREFIX: club-rag-hub
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"   # sam build가 Lambda 런타임과 같은 Python을 찾습니다
+      - uses: aws-actions/setup-sam@v3
+        with:
+          use-installer: true
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true   # 공개 저장소라 로그에 계정 ID를 가립니다
+
+      - name: sam build
+        run: sam build
+
+      - name: sam deploy
+        run: |
+          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          echo "::add-mask::${ACCOUNT_ID}"
+          sam deploy \
+            --stack-name "$STACK_NAME" \
+            --s3-bucket "${PREFIX}-artifacts-${ACCOUNT_ID}" \
+            --s3-prefix "$STACK_NAME" \
+            --capabilities CAPABILITY_IAM \
+            --region "$AWS_REGION" \
+            --tags Project=cloudarchitect-termproj \
+            --parameter-overrides "Prefix=${PREFIX}" "AppVersion=${GITHUB_SHA::7}" \
+            --no-confirm-changeset --no-fail-on-empty-changeset --no-progressbar
+
+      - name: GET /health
+        run: |
+          URL="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+            --query "Stacks[0].Outputs[?OutputKey=='HealthUrl'].OutputValue" --output text)"
+          echo "$URL"
+          curl -sS --fail-with-body --retry 3 --retry-all-errors "$URL"
+          echo

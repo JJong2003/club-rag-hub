@@ -40,6 +40,10 @@ cat > "$TMP_DIR/deploy-trust.json" <<EOF
 }
 EOF
 # SAM 앱 스택(${APP_STACK})과 그 스택이 만드는 Lambda, 역할, HTTP API, 로그 그룹만 다룰 수 있게 범위를 좁혔습니다.
+# Lambda의 Get*Config와 logs의 Describe*/GetDataProtectionPolicy는 CloudFormation이 리소스를 만들고 바꾼 뒤
+# 상태를 다시 읽을 때 부르는 읽기 권한입니다 (리소스 타입 스키마의 handlers 권한, 11/23 확인).
+# 11/23 첫 배포의 CloudTrail 기록에서 CloudFormation이 실제로 부른 API와 대조했습니다.
+# API Gateway는 HTTP API를 만들 때 자기 서비스 연결 역할을 만들려고 시도하므로, 그 역할만 만들 수 있게 열어 둡니다.
 cat > "$TMP_DIR/deploy-policy.json" <<EOF
 {
   "Version": "2012-10-17",
@@ -89,7 +93,9 @@ cat > "$TMP_DIR/deploy-policy.json" <<EOF
         "lambda:GetFunctionConfiguration", "lambda:UpdateFunctionCode", "lambda:UpdateFunctionConfiguration",
         "lambda:AddPermission", "lambda:RemovePermission", "lambda:GetPolicy",
         "lambda:TagResource", "lambda:UntagResource", "lambda:ListTags",
-        "lambda:PublishVersion", "lambda:ListVersionsByFunction"
+        "lambda:PublishVersion", "lambda:ListVersionsByFunction",
+        "lambda:GetFunctionCodeSigningConfig", "lambda:GetFunctionRecursionConfig",
+        "lambda:GetFunctionScalingConfig", "lambda:GetRuntimeManagementConfig"
       ],
       "Resource": "arn:aws:lambda:${AWS_REGION}:${ACCOUNT_ID}:function:${APP_STACK}-*"
     },
@@ -135,7 +141,8 @@ cat > "$TMP_DIR/deploy-policy.json" <<EOF
       "Effect": "Allow",
       "Action": [
         "logs:CreateLogGroup", "logs:DeleteLogGroup", "logs:PutRetentionPolicy", "logs:DeleteRetentionPolicy",
-        "logs:TagResource", "logs:UntagResource", "logs:TagLogGroup", "logs:ListTagsForResource"
+        "logs:TagResource", "logs:UntagResource", "logs:TagLogGroup", "logs:ListTagsForResource",
+        "logs:DescribeIndexPolicies", "logs:GetDataProtectionPolicy"
       ],
       "Resource": [
         "arn:aws:logs:${AWS_REGION}:${ACCOUNT_ID}:log-group:/aws/lambda/${APP_STACK}-*",
@@ -143,9 +150,22 @@ cat > "$TMP_DIR/deploy-policy.json" <<EOF
       ]
     },
     {
+      "Sid": "AccountReadOnly",
+      "Effect": "Allow",
+      "Action": [ "lambda:GetAccountSettings", "iam:GetAccountSummary" ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ApiGatewayServiceLinkedRoleOnly",
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "arn:aws:iam::${ACCOUNT_ID}:role/aws-service-role/ops.apigateway.amazonaws.com/*",
+      "Condition": { "StringEquals": { "iam:AWSServiceName": "ops.apigateway.amazonaws.com" } }
+    },
+    {
       "Sid": "DescribeLogGroups",
       "Effect": "Allow",
-      "Action": "logs:DescribeLogGroups",
+      "Action": [ "logs:DescribeLogGroups", "logs:DescribeResourcePolicies", "logs:DescribeIndexPolicies" ],
       "Resource": "*"
     }
   ]
@@ -170,6 +190,4 @@ ok "  권한: ${APP_STACK} 스택 배포에 필요한 것만"
 DEPLOY_ROLE_ARN="$(aws iam get-role --role-name "$DEPLOY_ROLE" --query Role.Arn --output text)"
 save_state DEPLOY_ROLE_ARN "$DEPLOY_ROLE_ARN"
 
-log "GitHub에 등록할 값 (공개 저장소라 계정 ID가 로그에 안 찍히게 Secrets에 둡니다)"
-info "Settings > Secrets and variables > Actions > Secrets"
-info "  AWS_ROLE_ARN = $DEPLOY_ROLE_ARN"
+log "다음: bash 06_github_actions.sh 가 이 ARN을 저장소 Secrets의 AWS_ROLE_ARN으로 등록합니다"

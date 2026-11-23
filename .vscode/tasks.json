@@ -18,6 +18,31 @@
       "problemMatcher": []
     },
     {
+      "label": "github: Actions 시크릿 등록 (06)",
+      "type": "shell",
+      "command": "bash infra/06_github_actions.sh",
+      "problemMatcher": []
+    },
+    {
+      "label": "app: 테스트 (pytest)",
+      "type": "shell",
+      "command": ".venv/Scripts/python -m pytest -q",
+      "problemMatcher": []
+    },
+    {
+      // 이 PC에서 sam build + sam deploy 후 /health 호출. 평소 배포는 main push로 Actions가 합니다.
+      "label": "app: 빌드와 배포 (sam)",
+      "type": "shell",
+      "command": "bash infra/deploy_app.sh",
+      "problemMatcher": []
+    },
+    {
+      "label": "app: /health 호출",
+      "type": "shell",
+      "command": "source infra/.state/outputs.env && curl -sS \"$HEALTH_URL\" && echo",
+      "problemMatcher": []
+    },
+    {
       "label": "infra: 태그로 리소스 조회",
       "type": "shell",
       "command": "bash infra/list_tagged.sh",
@@ -25,9 +50,10 @@
     },
     {
       // Lambda 런타임(python3.12)과 같은 버전으로 .venv를 지우고 다시 만듭니다.
+      // --seed: venv 안에 pip을 넣습니다. 없으면 활성화 상태에서도 pip이 시스템 Python에 설치합니다.
       "label": "python: 가상환경 다시 만들기 (3.12)",
       "type": "shell",
-      "command": "uv venv --clear --python 3.12 .venv && uv pip install --python .venv -r requirements-dev.txt",
+      "command": "uv venv --clear --seed --python 3.12 .venv && uv pip install --python .venv -r requirements-dev.txt",
       "problemMatcher": []
     }
   ]

@@ -1,0 +1,10 @@
+# 패키지 설정이 아니라 도구 설정만 둡니다. Lambda 코드는 src/<함수>/ 폴더 단위로 SAM이 묶습니다.
+
+[tool.pytest.ini_options]
+# 함수 폴더를 import 경로에 넣어서 테스트에서 `import health`로 부릅니다. 함수가 늘면 여기에 추가합니다.
+pythonpath = ["src/health"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
