@@ -5,7 +5,15 @@ source "$(dirname "$0")/lib.sh"
 
 OIDC_HOST="token.actions.githubusercontent.com"
 OIDC_ARN="arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_HOST}"
-GITHUB_SUB="repo:${GITHUB_OWNER}/${GITHUB_REPO}:ref:refs/heads/main"
+# OIDC 토큰의 sub 앞부분은 저장소 설정에 따라 다릅니다. 새 저장소는 소유자·저장소 ID가 붙은 형식
+# (repo:소유자@ID/저장소@ID, immutable subject)을 써서, 이름을 바꾸거나 같은 이름으로 다시 만든 저장소는 역할을 못 받습니다.
+# 그래서 GitHub에 직접 물어봅니다 (11/23 첫 Actions 실행이 옛 형식 때문에 거부되어 바꿈).
+SUB_PREFIX="$(gh api "repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/oidc/customization/sub" --jq .sub_claim_prefix 2>/dev/null || true)"
+if [ -z "$SUB_PREFIX" ]; then
+  SUB_PREFIX="repo:${GITHUB_OWNER}/${GITHUB_REPO}"
+  info "[주의] gh로 sub 형식을 확인하지 못해 옛 형식($SUB_PREFIX)을 씁니다. Actions가 거부되면 gh 로그인 후 다시 실행하세요."
+fi
+GITHUB_SUB="${SUB_PREFIX}:ref:refs/heads/main"
 
 log "OIDC 공급자 $OIDC_HOST"
 if exists aws iam get-open-id-connect-provider --open-id-connect-provider-arn "$OIDC_ARN"; then
