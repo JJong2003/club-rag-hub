@@ -2,7 +2,7 @@
 
 [![deploy](https://github.com/JJong2003/club-rag-hub/actions/workflows/deploy.yml/badge.svg)](https://github.com/JJong2003/club-rag-hub/actions/workflows/deploy.yml)
 
-충남대학교 동아리 운영을 돕는 질의응답 RAG 챗봇입니다. 학교 규정과 동아리 자료를 각각 지식 베이스(Knowledge Base, KB)로 두고, 질문한 사람이 볼 수 있는 KB만 골라 검색한 뒤 근거 문서와 함께 답합니다. 첫 번째로 연결한 동아리는 ANA입니다.
+충남대학교 동아리 운영을 돕는 질의응답 RAG 챗봇입니다. 학교 규정과 동아리 자료를 각각 지식 베이스(Knowledge Base, KB)로 두고, 질문한 사람이 볼 수 있는 KB만 골라 검색한 뒤 근거 문서와 함께 답합니다. 첫 번째로 연결한 동아리는 [충남대학교 ANA](https://anacnu.kr/)입니다.
 
 AWS 서울 리전에서 서버리스로 동작합니다 (Amazon Bedrock, S3 Vectors, Lambda, API Gateway, DynamoDB).
 
