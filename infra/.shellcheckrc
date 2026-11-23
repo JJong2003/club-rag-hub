@@ -1,0 +1,4 @@
+# 각 스크립트가 불러오는 lib.sh를 스크립트 폴더 기준으로 찾아서 따라가게 합니다.
+# (없으면 에디터에서 source 줄마다 SC1091 "Not following" 표시가 뜹니다.)
+source-path=SCRIPTDIR
+external-sources=true

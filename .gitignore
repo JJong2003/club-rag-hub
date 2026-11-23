@@ -1,0 +1,90 @@
+# 공개 저장소입니다. 비밀값이나 계정 정보가 들어갈 수 있는 파일은 넓게 막아 둡니다.
+# 꼭 올려야 하는 파일이 여기에 걸리면 `git check-ignore -v <파일>`로 원인을 보고 `git add -f`로 올리세요.
+
+# ---------------------------------------------------------------- 자격 증명, 키, 비밀값
+.env
+.env.*
+!.env.example
+*.env.local
+.aws/
+credentials
+credentials.*
+*secret*
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.ppk
+id_rsa*
+id_ed25519*
+*.token
+token.json
+
+# ---------------------------------------------------------------- 개인 설정 (메일 주소 등)
+*.local.env
+*.local.json
+*.local.yaml
+*.local.toml
+.claude/settings.local.json
+CLAUDE.local.md
+
+# ---------------------------------------------------------------- 인프라 스크립트 실행 결과 (계정 ID, 리소스 ID)
+infra/.state/
+.state/
+
+# ---------------------------------------------------------------- SAM / CloudFormation
+.aws-sam/
+# 계정 ID가 들어간 버킷 이름 등이 적힙니다. 배포 값은 Actions에서 인자로 넘깁니다.
+samconfig.toml
+samconfig.yaml
+samconfig.yml
+packaged*.yaml
+# sam local invoke --env-vars 파일 (환경 변수에 비밀값이 들어가기 쉬움)
+env.json
+*.env.json
+
+# ---------------------------------------------------------------- 문서 원본 (학교 규정, 동아리 자료, 개인정보 가능)
+# 문서는 S3 문서 버킷에 올리고 저장소에는 넣지 않습니다.
+data/
+raw/
+*.hwp
+*.hwpx
+*.pdf
+*.doc
+*.docx
+*.xls
+*.xlsx
+*.ppt
+*.pptx
+*.csv
+
+# 계정 ID, ARN이 찍힌 보고서용 화면
+screenshots/
+
+# ---------------------------------------------------------------- Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# ---------------------------------------------------------------- 기타
+node_modules/
+*.log
+*.zip
+*.tar.gz
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+*.swp

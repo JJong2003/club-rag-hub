@@ -1,0 +1,34 @@
+{
+  // 명령 팔레트 > "Tasks: Run Task"에서 실행합니다. 모두 Git Bash로 돌아갑니다.
+  "version": "2.0.0",
+  "options": {
+    "shell": { "executable": "C:\\Program Files\\Git\\bin\\bash.exe", "args": ["-c"] }
+  },
+  "tasks": [
+    {
+      "label": "infra: 00 실행 전 확인",
+      "type": "shell",
+      "command": "bash infra/00_check.sh",
+      "problemMatcher": []
+    },
+    {
+      "label": "infra: 전체 생성 (run_all)",
+      "type": "shell",
+      "command": "bash infra/run_all.sh",
+      "problemMatcher": []
+    },
+    {
+      "label": "infra: 태그로 리소스 조회",
+      "type": "shell",
+      "command": "bash infra/list_tagged.sh",
+      "problemMatcher": []
+    },
+    {
+      // Lambda 런타임(python3.12)과 같은 버전으로 .venv를 지우고 다시 만듭니다.
+      "label": "python: 가상환경 다시 만들기 (3.12)",
+      "type": "shell",
+      "command": "uv venv --clear --python 3.12 .venv && uv pip install --python .venv -r requirements-dev.txt",
+      "problemMatcher": []
+    }
+  ]
+}

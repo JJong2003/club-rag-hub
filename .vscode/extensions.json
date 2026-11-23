@@ -1,0 +1,11 @@
+{
+  "recommendations": [
+    "amazonwebservices.aws-toolkit-vscode",
+    "redhat.vscode-yaml",
+    "timonwong.shellcheck",
+    "github.vscode-github-actions",
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    "charliermarsh.ruff"
+  ]
+}

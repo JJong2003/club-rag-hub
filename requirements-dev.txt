@@ -1,0 +1,3 @@
+# 로컬 개발용 (Lambda에 올라가지 않음). Lambda 런타임에는 boto3가 이미 들어 있습니다.
+boto3
+pytest

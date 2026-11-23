@@ -1,0 +1,56 @@
+{
+  // infra/*.sh는 Git Bash 전용입니다. 새 터미널을 열면 Git Bash로 열립니다.
+  "terminal.integrated.defaultProfile.windows": "Git Bash",
+  // 터미널에서 aws, sam을 칠 때 --profile, --region을 생략할 수 있게 합니다.
+  "terminal.integrated.env.windows": {
+    "AWS_PROFILE": "club-rag-hub",
+    "AWS_REGION": "ap-northeast-2",
+    "AWS_DEFAULT_REGION": "ap-northeast-2",
+    "AWS_PAGER": ""
+  },
+
+  // CRLF면 Git Bash에서 스크립트가 깨집니다. .gitattributes와 맞춰 새 파일도 LF로 저장합니다.
+  "files.eol": "\n",
+  "files.insertFinalNewline": true,
+
+  "files.exclude": {
+    "**/__pycache__": true,
+    ".aws-sam": true
+  },
+  "search.exclude": {
+    ".venv": true,
+    ".aws-sam": true,
+    "infra/.state/tmp": true
+  },
+
+  // Lambda 코드용 가상환경 (requirements-dev.txt)
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+  "python.testing.pytestEnabled": true,
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.formatOnSave": true
+  },
+
+  // SAM/CloudFormation 템플릿(template.yaml)의 !Ref, !Sub 등을 YAML 오류로 표시하지 않게 합니다.
+  "yaml.customTags": [
+    "!And sequence",
+    "!Base64",
+    "!Cidr sequence",
+    "!Condition",
+    "!Equals sequence",
+    "!FindInMap sequence",
+    "!GetAtt",
+    "!GetAtt sequence",
+    "!GetAZs",
+    "!If sequence",
+    "!ImportValue",
+    "!Join sequence",
+    "!Not sequence",
+    "!Or sequence",
+    "!Ref",
+    "!Select sequence",
+    "!Split sequence",
+    "!Sub",
+    "!Sub sequence"
+  ]
+}

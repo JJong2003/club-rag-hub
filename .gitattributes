@@ -1,0 +1,3 @@
+# Windows에서 체크아웃해도 셸 스크립트는 LF 줄바꿈을 유지 (CRLF면 Git Bash에서 오류)
+*.sh  text eol=lf
+*.env text eol=lf
