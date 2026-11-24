@@ -7,12 +7,15 @@
 #   - IAM 역할      <PREFIX>-kb-<kb_key>  (자기 S3 폴더와 자기 인덱스만 접근)
 #   - KB            <PREFIX>-<kb_key>
 #   - 데이터 소스   <kb_key>-s3        (문서 버킷의 <s3_prefix> 폴더를 읽음)
-#   - KB 목록 테이블에 한 줄 등록 (누가 검색할 수 있는지 포함)
+#   - KB 목록 테이블에 한 줄 등록 (누가 검색할 수 있는지, 검색 도구에 보일 이름과 설명 포함)
 #
-# 사용법: bash 04_add_kb.sh <kb_key> <s3_prefix> <chunking> <allowed_groups>
+# 사용법: bash 04_add_kb.sh <kb_key> <s3_prefix> <chunking> <allowed_groups> [이름] [설명]
 #   chunking        NONE(파일 하나 = 청크 하나) 또는 FIXED_SIZE(300토큰, 20% 겹침)
 #   allowed_groups  검색할 수 있는 Cognito 그룹, 쉼표로 구분. 모두 허용은 '*'
-# 예) bash 04_add_kb.sh school   school/kb/    NONE       '*'
+#   이름, 설명      검색 도구(list_sources)가 보여 주는 KB 이름과 한 줄 설명 (선택).
+#                   LLM이 설명을 읽고 어느 KB를 검색할지 고르므로 무엇이 들어 있는지 적습니다.
+#                   빼고 다시 실행하면 이미 적힌 이름·설명은 그대로 둡니다.
+# 예) bash 04_add_kb.sh school   school/kb/    NONE       '*' "충남대 학교 규정" "학칙과 시설·안전 규정"
 #     bash 04_add_kb.sh club-ana clubs/ana/kb/ FIXED_SIZE ana
 source "$(dirname "$0")/lib.sh"
 
@@ -20,6 +23,10 @@ KB_KEY="${1:-}"
 S3_PREFIX="${2:-}"
 CHUNKING="${3:-}"
 ALLOWED_GROUPS="${4:-}"
+DISPLAY_NAME="${5:-}"
+DESCRIPTION="${6:-}"
+DISPLAY_NAME="${DISPLAY_NAME//[$'\t\r\n']/ }"   # 한 줄로
+DESCRIPTION="${DESCRIPTION//[$'\t\r\n']/ }"
 
 [[ "$KB_KEY" =~ ^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$ ]] || die "kb_key는 소문자, 숫자, 하이픈으로 3~30자: '$KB_KEY'"
 [[ "$S3_PREFIX" =~ ^[a-z0-9][a-z0-9/_-]*/$ ]] || die "s3_prefix는 school/kb/ 처럼 /로 끝나야 합니다: '$S3_PREFIX'"
@@ -233,21 +240,46 @@ for g in "${group_arr[@]}"; do
   [ -n "$g" ] && groups_json="${groups_json}\"${g}\","
 done
 groups_json="[${groups_json%,}]"
-cat > "$TMP_DIR/registry-${KB_KEY}.json" <<EOF
-{
-  "kb_key":         { "S": "${KB_KEY}" },
-  "kb_id":          { "S": "${KB_ID}" },
-  "data_source_id": { "S": "${DS_ID}" },
-  "index_name":     { "S": "${INDEX_NAME}" },
-  "s3_prefix":      { "S": "${S3_PREFIX}" },
-  "chunking":       { "S": "${CHUNKING}" },
-  "allowed_groups": { "SS": ${groups_json} },
-  "enabled":        { "BOOL": true },
-  "updated_at":     { "S": "$(date -u +%Y-%m-%dT%H:%M:%SZ)" }
+
+# put-item은 줄 전체를 덮어써서, 다시 실행할 때 이름·설명을 빼면 지워집니다.
+# 그래서 update-item으로 이 스크립트가 정하는 칸만 바꾸고, 이름·설명은 인자로 줄 때만 바꿉니다.
+# 한글은 aws 인자로 직접 넘기면 깨질 수 있어서 file:// JSON으로 넘깁니다 (lib.sh의 AWS_CLI_FILE_ENCODING).
+json_str() {  # JSON 문자열로 감쌉니다 (역슬래시, 따옴표 처리)
+  local s="${1//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  printf '"%s"' "$s"
 }
-EOF
-aws dynamodb put-item --table-name "$REGISTRY_TABLE" --item "file://${TMP_DIR}/registry-${KB_KEY}.json"
+set_expr="#kb_id = :kb_id, #ds = :ds, #idx = :idx, #prefix = :prefix, #chunk = :chunk"
+set_expr="${set_expr}, #groups = :groups, #enabled = :enabled, #updated = :updated"
+names='"#kb_id": "kb_id", "#ds": "data_source_id", "#idx": "index_name", "#prefix": "s3_prefix",
+  "#chunk": "chunking", "#groups": "allowed_groups", "#enabled": "enabled", "#updated": "updated_at"'
+values="\":kb_id\": { \"S\": \"${KB_ID}\" }, \":ds\": { \"S\": \"${DS_ID}\" }, \":idx\": { \"S\": \"${INDEX_NAME}\" },
+  \":prefix\": { \"S\": \"${S3_PREFIX}\" }, \":chunk\": { \"S\": \"${CHUNKING}\" }, \":groups\": { \"SS\": ${groups_json} },
+  \":enabled\": { \"BOOL\": true }, \":updated\": { \"S\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\" }"
+if [ -n "$DISPLAY_NAME" ]; then
+  set_expr="${set_expr}, #name = :name"
+  names="${names}, \"#name\": \"name\""
+  values="${values}, \":name\": { \"S\": $(json_str "$DISPLAY_NAME") }"
+fi
+if [ -n "$DESCRIPTION" ]; then
+  set_expr="${set_expr}, #desc = :desc"
+  names="${names}, \"#desc\": \"description\""
+  values="${values}, \":desc\": { \"S\": $(json_str "$DESCRIPTION") }"
+fi
+printf '{ "kb_key": { "S": "%s" } }\n' "$KB_KEY" > "$TMP_DIR/registry-key-${KB_KEY}.json"
+printf '{ %s }\n' "$names" > "$TMP_DIR/registry-names-${KB_KEY}.json"
+printf '{ %s }\n' "$values" > "$TMP_DIR/registry-values-${KB_KEY}.json"
+aws dynamodb update-item --table-name "$REGISTRY_TABLE" \
+  --key "file://${TMP_DIR}/registry-key-${KB_KEY}.json" \
+  --update-expression "SET ${set_expr}" \
+  --expression-attribute-names "file://${TMP_DIR}/registry-names-${KB_KEY}.json" \
+  --expression-attribute-values "file://${TMP_DIR}/registry-values-${KB_KEY}.json" >/dev/null
 ok "등록: $KB_KEY -> $KB_ID (검색 허용 그룹 $groups_json)"
+if [ -n "$DISPLAY_NAME$DESCRIPTION" ]; then
+  ok "  이름: ${DISPLAY_NAME:-(그대로)}, 설명: ${DESCRIPTION:-(그대로)}"
+else
+  info "이름·설명은 주지 않아서 이미 적힌 값을 그대로 둡니다."
+fi
 
 save_state "KB_ID_${STATE_KEY}" "$KB_ID"
 save_state "DS_ID_${STATE_KEY}" "$DS_ID"

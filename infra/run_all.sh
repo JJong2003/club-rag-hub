@@ -9,8 +9,8 @@ bash ./00_check.sh
 # 서비스 제어 정책(SCP)이 budgets:*를 막습니다 (2026-11-23 확인).
 bash ./02_storage.sh
 bash ./03_vector_bucket.sh
-bash ./04_add_kb.sh school   school/kb/    NONE       '*'    # 충남대 규정: 모두 검색 가능
-bash ./04_add_kb.sh club-ana clubs/ana/kb/ FIXED_SIZE ana    # ANA 자료: ana 그룹만
+bash ./04_add_kb.sh school   school/kb/    NONE       '*' "충남대 학교 규정" "충남대학교 학칙과 시설·안전 규정(강의실 사용, 전열기구, 화재예방·소방안전, 감염병 관리, 정심화국제문화회관), 학생 포상·징계 규정. 조문 하나가 문서 하나"    # 모두 검색 가능
+bash ./04_add_kb.sh club-ana clubs/ana/kb/ FIXED_SIZE ana "ANA 동아리 운영 자료" "충남대 ANA 동아리 노션 자료: 연간 일정, 회의록, 행사·MT·교육 기록, 부서별 역할"    # ana 그룹만
 bash ./05_github_oidc.sh
 bash ./06_github_actions.sh   # gh 로그인이 필요합니다
 bash ./07_cognito.sh          # MCP 서버 로그인 계정 (Cognito)
