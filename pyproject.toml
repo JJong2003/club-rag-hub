@@ -2,7 +2,8 @@
 
 [tool.pytest.ini_options]
 # 함수 폴더를 import 경로에 넣어서 테스트에서 `import health`로 부릅니다. 함수가 늘면 여기에 추가합니다.
-pythonpath = ["src/health"]
+# scripts/는 데이터 스크립트(sync_s3 등) 테스트용입니다.
+pythonpath = ["src/health", "src/tools", "src/interceptor", "scripts"]
 testpaths = ["tests"]
 
 [tool.ruff]

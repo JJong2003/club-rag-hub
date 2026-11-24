@@ -43,6 +43,26 @@
       "problemMatcher": []
     },
     {
+      // data/school/ → S3 school/. 조문(kb/)이 바뀌었으면 KB school 동기화까지 합니다.
+      "label": "data: S3 올리기 (학교 규정 school/)",
+      "type": "shell",
+      "command": ".venv/Scripts/python scripts/sync_s3.py school",
+      "problemMatcher": []
+    },
+    {
+      // data/clubs/ana/manifest.json의 masked, skipped를 확인한 뒤 실행합니다.
+      "label": "data: S3 올리기 (ANA 자료 clubs/ana/, 가림 검토 후)",
+      "type": "shell",
+      "command": ".venv/Scripts/python scripts/sync_s3.py clubs/ana",
+      "problemMatcher": []
+    },
+    {
+      "label": "data: S3 올리기 (수집 원본 _sources/)",
+      "type": "shell",
+      "command": ".venv/Scripts/python scripts/sync_s3.py _sources",
+      "problemMatcher": []
+    },
+    {
       "label": "infra: 태그로 리소스 조회",
       "type": "shell",
       "command": "bash infra/list_tagged.sh",

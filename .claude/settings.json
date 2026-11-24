@@ -1,0 +1,1 @@
+{ "env": { "AWS_PROFILE": "club-rag-hub", "AWS_REGION": "ap-northeast-2" } }
