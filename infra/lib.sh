@@ -11,6 +11,8 @@ cd "$INFRA_DIR"
 export MSYS_NO_PATHCONV=1
 # aws 출력이 페이저에 걸려 멈추지 않게 합니다.
 export AWS_PAGER=""
+# Windows에서 aws가 file:// JSON을 시스템 인코딩(CP949)으로 읽어 한글이 깨지는 것을 막습니다.
+export AWS_CLI_FILE_ENCODING="UTF-8"
 
 [ -f config.env ] || { echo "  [오류] config.env 파일이 없습니다." >&2; exit 1; }
 # shellcheck source=/dev/null

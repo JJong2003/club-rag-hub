@@ -88,6 +88,41 @@ Resources:
       LogGroupName: !Sub /aws/lambda/${HealthFunction}
       RetentionInDays: 14
 
+  # MCP 도구 Lambda. HTTP API가 아니라 AgentCore Gateway가 부릅니다 (infra/08_mcp_gateway.sh).
+  # Gateway는 자기 실행 역할로 이 함수를 부르므로 여기에는 호출 권한(리소스 정책)을 두지 않습니다.
+  ToolsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-tools
+      Description: MCP tools called by AgentCore Gateway (ping for now)
+      CodeUri: src/tools/
+      Handler: tools.handler
+
+  ToolsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${ToolsFunction}
+      RetentionInDays: 14
+
+  # Gateway 요청 인터셉터. 로그인 토큰에서 그룹을 꺼내 도구 입력값(caller_groups)에 넣습니다.
+  # Gateway가 토큰을 도구 Lambda에 넘기지 않기 때문에 필요합니다. 부르는 쪽은 Gateway뿐이고(실행 역할),
+  # 이 함수는 AWS를 부르지 않으므로 기본 로그 권한만 있습니다.
+  InterceptorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-interceptor
+      Description: AgentCore Gateway request interceptor - adds caller groups from the JWT to tools/call
+      CodeUri: src/interceptor/
+      Handler: interceptor.handler
+      MemorySize: 128
+      Timeout: 5               # 모든 MCP 요청 앞에서 돌므로 짧게
+
+  InterceptorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${InterceptorFunction}
+      RetentionInDays: 14
+
 Outputs:
   ApiUrl:
     Description: HTTP API base URL
@@ -97,3 +132,9 @@ Outputs:
     Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/health
   HealthFunctionName:
     Value: !Ref HealthFunction
+  ToolsFunctionArn:
+    Description: MCP tools Lambda (AgentCore Gateway target)
+    Value: !GetAtt ToolsFunction.Arn
+  InterceptorFunctionArn:
+    Description: AgentCore Gateway request interceptor
+    Value: !GetAtt InterceptorFunction.Arn

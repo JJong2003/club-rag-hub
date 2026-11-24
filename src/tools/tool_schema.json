@@ -1,0 +1,15 @@
+[
+  {
+    "name": "ping",
+    "description": "MCP 서버 연결 시험용 도구입니다. 로그인한 상태로 서버에 연결됐는지, 로그인 정보(동아리 그룹)가 도구까지 전달되는지 확인합니다. 사용자가 연결 확인을 요청할 때만 쓰세요.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string",
+          "description": "그대로 돌려받을 짧은 문장 (선택)"
+        }
+      }
+    }
+  }
+]
