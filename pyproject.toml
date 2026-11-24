@@ -3,6 +3,7 @@
 [tool.pytest.ini_options]
 # 함수 폴더를 import 경로에 넣어서 테스트에서 `import health`로 부릅니다. 함수가 늘면 여기에 추가합니다.
 # src/는 여러 함수가 같이 쓰는 패키지(kb_search) 테스트용입니다. scripts/는 데이터 스크립트(sync_s3 등) 테스트용입니다.
+# CodeUri가 src/인 함수(ask)는 폴더를 넣지 않고 Lambda와 같은 이름으로 부릅니다: `from ask import ask`.
 pythonpath = ["src/health", "src/tools", "src/interceptor", "src", "scripts"]
 testpaths = ["tests"]
 
