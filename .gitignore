@@ -93,3 +93,4 @@ Thumbs.db
 desktop.ini
 .idea/
 *.swp
+web/config.js
