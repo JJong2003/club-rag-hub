@@ -15,8 +15,11 @@ const LOGOUT_URI = cfg.logoutUri || REDIRECT_URI;
 const SCOPE = cfg.scope || lib.DEFAULT_SCOPE;
 const REQUEST_TIMEOUT_MS = 40000; // HTTP API는 30초에 끊으므로 그보다 조금 길게
 // 터치 화면에서는 Enter가 줄바꿈 (보내기는 버튼)
-const ENTER_SENDS = !window.matchMedia('(pointer: coarse)').matches;
+const TOUCH = window.matchMedia('(pointer: coarse)').matches;
+const ENTER_SENDS = !TOUCH;
 const REDUCE_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+// 이 PC에서 띄운 화면 (개발용 링크와 자세한 설정 안내는 여기서만)
+const LOCAL = lib.isLocalHost(location.hostname);
 
 const KEY = {
   id: 'crh.idToken',
@@ -49,6 +52,8 @@ const els = {
   chatView: $('chat-view'),
   messages: $('messages'),
   emptyState: $('empty-state'),
+  emptyLead: $('empty-lead'),
+  groupExamples: [...document.querySelectorAll('[data-needs-group]')],
   mockHint: $('mock-hint'),
   composer: $('composer'),
   modeButtons: [...document.querySelectorAll('.mode-btn')],
@@ -210,12 +215,14 @@ function showLogin(message = '', { busy: loading = false, setup = false } = {}) 
   els.loginButton.textContent = MOCK ? '로그인 (시연)' : '로그인';
   els.loginButton.hidden = loading || setup;
   els.loginHelp.hidden = loading || setup || MOCK;
-  els.mockLinkBox.hidden = MOCK || loading;
+  els.mockLinkBox.hidden = MOCK || loading || !LOCAL;
 }
 
 function showSetupNeeded() {
   showLogin(
-    '설정 파일(config.js)이 없어서 로그인할 수 없습니다. config.example.js를 config.js로 복사해 값을 채워 주세요.',
+    LOCAL
+      ? '설정 파일(config.js)이 없어서 로그인할 수 없습니다. config.example.js를 config.js로 복사해 값을 채워 주세요.'
+      : '지금은 로그인할 수 없습니다. 화면 설정이 끝나지 않았습니다. 임원진에게 알려 주세요.',
     { setup: true },
   );
 }
@@ -233,6 +240,12 @@ function showChat(session) {
     : [el('span', 'group none', '그룹 없음')];
   els.userGroups.replaceChildren(...groups);
   // 그룹은 보여 주기만 함. 어떤 자료를 찾을지는 서버가 토큰으로 정함
+  // 그룹이 없으면 동아리 자료를 찾지 못하므로 동아리 질문 예시와 안내를 뺌
+  const hasGroup = session.user.groups.length > 0;
+  for (const li of els.groupExamples) li.hidden = !hasGroup;
+  els.emptyLead.textContent = hasGroup
+    ? '학교 규정과 동아리 자료에서 근거를 찾아 답하고, 문장 끝에 출처 번호를 붙입니다.'
+    : '학교 규정에서 근거를 찾아 답하고, 문장 끝에 출처 번호를 붙입니다.';
 }
 
 function resetChat() {
@@ -279,9 +292,12 @@ function updateCount() {
   els.count.classList.toggle('over', n > lib.MAX_QUESTION);
 }
 
+// 글이 늘면 칸도 늘림 (최대 높이는 style.css의 max-height)
 function autoGrow(textarea) {
   textarea.style.height = 'auto';
-  textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
+  const max = parseFloat(getComputedStyle(textarea).maxHeight) || 200;
+  const border = textarea.offsetHeight - textarea.clientHeight;
+  textarea.style.height = `${Math.min(textarea.scrollHeight + border, max)}px`;
 }
 
 function clearComposer() {
@@ -305,10 +321,10 @@ function hideComposerError() {
   els.composerError.textContent = '';
 }
 
+// 기다리는 동안 보내기만 막음 (버튼 글자는 그대로 두어 입력칸 폭이 흔들리지 않게)
 function setBusy(on) {
   busy = on;
   els.send.disabled = on;
-  els.send.textContent = on ? '기다리는 중' : '보내기';
   els.composer.setAttribute('aria-busy', String(on));
 }
 
@@ -342,30 +358,61 @@ async function submitQuestion() {
     return;
   }
 
-  const usedMode = mode;
+  // 말풍선에는 입력한 내용만 (행사 기획은 합친 긴 질문 대신 칸 내용)
+  const req = { question: r.value, mode, shown: mode === 'event' ? r.summary : r.value };
   clearComposer();
-  await ask(r.value, usedMode);
+  // 행사 기획을 보낸 뒤에는 질문 탭으로 돌아가 입력칸이 답변을 가리지 않게
+  if (mode === 'event') setMode('qa', { focus: false });
+  afterSend();
+  await ask(req);
+}
+
+// 보낸 뒤: 컴퓨터는 다음 질문을 바로 쓰게 질문 칸에 포커스,
+// 휴대폰은 키보드가 답변을 가리지 않게 닫음
+function afterSend() {
+  if (TOUCH) {
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+  } else {
+    els.question.focus({ preventScroll: true });
+  }
 }
 
 // 질문 말풍선 -> 기다림 표시 -> 답변 또는 오류
-async function ask(question, usedMode, { delay } = {}) {
+// req: { question: 보낼 질문, mode: 'qa' | 'event', shown: 말풍선 글 }
+async function ask(req, { delay } = {}) {
   setBusy(true);
   els.emptyState.hidden = true;
-  const userNode = appendUser(question, usedMode);
+  const userNode = appendUser(req.shown || req.question, req.mode);
   const pending = appendPending();
-  announce('답변을 찾는 중입니다.');
+  announce('자료를 찾고 있어요.');
 
   let result;
   try {
-    result = await callAsk(question, usedMode, delay);
+    result = await callAsk(req.question, req.mode, delay);
   } finally {
     pending.stop();
   }
 
-  pending.node.replaceWith(renderResult(result, question, usedMode));
+  const answerNode = renderResult(result, req);
+  pending.node.replaceWith(answerNode);
   setBusy(false);
-  // 방금 한 질문이 화면 위쪽에 오게 (답변을 처음부터 읽도록)
-  userNode.scrollIntoView({ block: 'start', behavior: REDUCE_MOTION || DEMO ? 'auto' : 'smooth' });
+  revealAnswer(userNode, answerNode);
+}
+
+// 답변 말풍선의 처음이 보이게 (긴 답변이어도 맨 아래로 내려가지 않게)
+function revealAnswer(userNode, answerNode) {
+  const box = els.messages;
+  const boxTop = box.getBoundingClientRect().top - box.scrollTop;
+  const q = userNode.getBoundingClientRect();
+  const a = answerNode.getBoundingClientRect();
+  const top = lib.answerScrollTop({
+    questionTop: q.top - boxTop,
+    answerTop: a.top - boxTop,
+    answerBottom: a.bottom - boxTop,
+    viewHeight: box.clientHeight,
+    maxScroll: box.scrollHeight - box.clientHeight,
+  });
+  box.scrollTo({ top, behavior: REDUCE_MOTION || DEMO ? 'auto' : 'smooth' });
 }
 
 // 실제 /ask 또는 가짜 응답. 둘 다 { status, body }
@@ -421,6 +468,7 @@ function appendUser(question, usedMode) {
   return art;
 }
 
+// 기다리는 동안: 단계 문구(자료 찾기 -> 답변 쓰기)와 지난 시간
 function appendPending() {
   const art = el('article', 'msg bot pending');
   art.setAttribute('aria-label', '답변 기다리는 중');
@@ -429,10 +477,11 @@ function appendPending() {
   const dots = el('span', 'dots');
   dots.setAttribute('aria-hidden', 'true');
   dots.append(el('i'), el('i'), el('i'));
+  const text = el('span', 'pending-text');
   const elapsed = el('span', 'elapsed');
   elapsed.setAttribute('aria-hidden', 'true');
-  line.append(dots, el('span', 'pending-text', '답변을 찾는 중입니다'), elapsed);
-  const slow = el('p', 'slow-hint', '학교 규정과 동아리 자료를 읽고 답을 쓰고 있습니다. 20초쯤 걸릴 수 있습니다.');
+  line.append(dots, text, elapsed);
+  const slow = el('p', 'slow-hint', '평소보다 오래 걸리고 있어요. 조금만 더 기다려 주세요.');
   slow.hidden = true;
   bubble.append(line, slow);
   art.append(bubble);
@@ -440,21 +489,24 @@ function appendPending() {
   scrollToBottom();
 
   const started = Date.now();
-  const timer = setInterval(() => {
-    const s = Math.floor((Date.now() - started) / 1000);
-    elapsed.textContent = `${s}초`;
-    if (s >= 5) slow.hidden = false;
-  }, 1000);
+  const update = () => {
+    const st = lib.pendingStatus(Date.now() - started);
+    if (text.textContent !== st.text) text.textContent = st.text;
+    elapsed.textContent = `${st.seconds}초`;
+    slow.hidden = !st.slow;
+  };
+  update();
+  const timer = setInterval(update, 250);
   return { node: art, stop: () => clearInterval(timer) };
 }
 
-function renderResult({ status, body }, question, usedMode) {
+function renderResult({ status, body }, req) {
   if (status === 200) {
     const a = lib.normalizeAnswer(body);
     if (a) return renderAnswer(a);
-    return renderError(lib.GENERIC_ERROR, 500, question, usedMode); // 약속과 다른 모양
+    return renderError(lib.GENERIC_ERROR, 500, req); // 약속과 다른 모양
   }
-  return renderError(lib.errorMessage(status, body), status, question, usedMode);
+  return renderError(lib.errorMessage(status, body), status, req);
 }
 
 function metaLine(a) {
@@ -559,7 +611,7 @@ function sourceCard(msgId, s) {
   return li;
 }
 
-function renderError(message, status, question, usedMode) {
+function renderError(message, status, req) {
   const art = el('article', 'msg bot');
   art.setAttribute('aria-label', '오류');
   const bubble = el('div', 'bubble error');
@@ -575,7 +627,7 @@ function renderError(message, status, question, usedMode) {
     actions.append(button('다시 로그인', 'btn primary small', startLogin));
   } else if (status !== 400 && status !== 403) {
     actions.append(button('다시 보내기', 'btn ghost small', () => {
-      if (!busy) ask(question, usedMode);
+      if (!busy) ask(req);
     }));
   }
   if (actions.childElementCount) bubble.append(actions);
@@ -621,11 +673,11 @@ async function runDemo() {
   });
   const steps = [
     ['qa', '동아리방에서 전기난로를 써도 되나요?'],
-    ['event', event.value],
+    ['event', event.value, event.summary],
     ['qa', '내일 대전 날씨 알려 줘'],
     ['qa', '오류가 나면 어떻게 보이나요?'],
   ];
-  for (const [m, q] of steps) await ask(q, m, { delay: 0 });
+  for (const [m, q, shown] of steps) await ask({ question: q, mode: m, shown: shown || q }, { delay: 0 });
   const first = els.messages.querySelector('details');
   if (first) first.open = true;
   els.messages.scrollTop = params.get('scroll') === 'bottom' ? els.messages.scrollHeight : 0;

@@ -5,6 +5,7 @@
 //   '요청 제한'   -> 429
 //   '잘못된 요청' -> 400 (서버 메시지를 그대로 보여 줌)
 //   '날씨', '모르는' -> 근거 없음(no_answer)
+//   '휴학', '총무', '장소 후보' -> 질문 예시 버튼용 답변
 //   '보안 시험'   -> HTML 글자와 javascript: 링크가 섞인 응답 (글자로만 보이고 링크가 안 생겨야 함)
 //   mode가 event, 'MT', '행사' -> 행사 기획 답변
 //   '회의'        -> 동아리 자료만 쓴 답변
@@ -115,6 +116,72 @@ const CLUB = {
   ms: 6120,
 };
 
+// 질문 예시 버튼용 (휴학, 총무, MT 장소)
+const LEAVE = {
+  answer:
+    '휴학은 재학 중 모두 합쳐 6개 학기까지 할 수 있습니다 [1]. '
+    + '한 번에 이어서 하는 휴학은 특별한 사유가 없으면 2개 학기를 넘을 수 없습니다 [1].',
+  sources: [
+    {
+      n: 1,
+      kind: 'school_rule',
+      title: '「충남대학교 학칙」 휴학 기간',
+      detail: '시연용 예시',
+      url: LAW_URL,
+      text: '휴학 기간은 재학 중 통산 6개 학기를 넘을 수 없다. 계속하여 휴학하는 기간은 특별한 사유가 없으면 2개 학기를 넘을 수 없다.',
+    },
+  ],
+  searched: ['school', 'club-ana'],
+  no_answer: false,
+  ms: 3480,
+};
+
+const TREASURER = {
+  answer:
+    '총무는 예산안을 짜고 회비를 관리합니다 [1].\n'
+    + '동아리방 물품 관리와 학교 시설 대관도 총무가 맡습니다 [1].',
+  sources: [
+    {
+      n: 1,
+      kind: 'club_manual',
+      title: '임원진 > 역할 나누기 > 총무',
+      detail: '2026',
+      url: NOTION_URL,
+      text: '총무: 예산안 편성, 회비 관리, 동아리방 물품 관리, 학교 시설 대관.',
+    },
+  ],
+  searched: ['school', 'club-ana'],
+  no_answer: false,
+  ms: 2910,
+};
+
+const MT_PLACE = {
+  answer:
+    '가을 MT 장소 후보는 네 곳이었습니다 [1]. '
+    + '다음 회의에서 그중 한 곳으로 정했습니다 [2].',
+  sources: [
+    {
+      n: 1,
+      kind: 'club_manual',
+      title: '전체 일정 > 일정 및 작업들 > 가을 MT 1차 회의',
+      detail: '2026',
+      url: NOTION_URL,
+      text: '안건 1. MT 장소 후보: 각자 조사한 4곳을 비교한다.',
+    },
+    {
+      n: 2,
+      kind: 'club_manual',
+      title: '전체 일정 > 일정 및 작업들 > 가을 MT 2차 회의',
+      detail: '2026',
+      url: NOTION_URL,
+      text: '결정: 장소는 후보 중 1곳으로 확정. 계약금은 총무가 송금.',
+    },
+  ],
+  searched: ['school', 'club-ana'],
+  no_answer: false,
+  ms: 2040,
+};
+
 const NO_ANSWER = {
   answer: NO_ANSWER_TEXT,
   sources: [],
@@ -161,6 +228,9 @@ export function mockAsk(question, mode = 'qa') {
   if (q.includes('잘못된 요청')) return { status: 400, body: { error: '질문을 1,000자 안으로 적어 주세요.' } };
   if (q.includes('보안 시험')) return { status: 200, body: copy(SECURITY) };
   if (q.includes('날씨') || q.includes('모르는')) return { status: 200, body: copy(NO_ANSWER) };
+  if (q.includes('휴학')) return { status: 200, body: copy(LEAVE) };
+  if (q.includes('총무')) return { status: 200, body: copy(TREASURER) };
+  if (mode !== 'event' && q.includes('장소 후보')) return { status: 200, body: copy(MT_PLACE) };
   if (mode === 'event' || q.includes('MT') || q.includes('행사')) return { status: 200, body: copy(EVENT) };
   if (q.includes('회의')) return { status: 200, body: copy(CLUB) };
   return { status: 200, body: copy(HEATER) };

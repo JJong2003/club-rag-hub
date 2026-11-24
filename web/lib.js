@@ -27,6 +27,7 @@ function oneLine(text) {
 }
 
 // '행사 기획' 입력칸을 한 질문 문장으로 합침. 행사 종류만 꼭 필요함
+// value는 서버에 보낼 질문, summary는 말풍선에 보일 짧은 글 (입력한 칸만)
 export function buildEventQuestion({ type, place, date, details } = {}) {
   const fields = [
     ['행사 종류', oneLine(type)],
@@ -34,11 +35,44 @@ export function buildEventQuestion({ type, place, date, details } = {}) {
     ['날짜', oneLine(date)],
     ['내용', oneLine(details)],
   ];
-  if (!fields[0][1]) return { ok: false, value: '', error: '행사 종류를 적어 주세요.' };
-  const parts = fields.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`);
-  const value = `[행사 기획] ${parts.join(' / ')}. `
+  if (!fields[0][1]) return { ok: false, value: '', error: '행사 종류를 적어 주세요.', summary: '' };
+  const summary = fields.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join(' / ');
+  const value = `[행사 기획] ${summary}. `
     + '이 행사를 준비할 때 거쳐야 할 절차, 지켜야 할 학교 규정, 동아리에서 해 온 방식을 알려 주세요.';
-  return validateQuestion(value);
+  return { ...validateQuestion(value), summary };
+}
+
+// ---------------------------------------------------------------- 화면 동작
+
+// 이 PC에서 띄운 화면인지. 개발용 링크(가짜 응답으로 보기)는 여기서만 보임
+export function isLocalHost(hostname) {
+  const h = String(hostname ?? '').toLowerCase();
+  return h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || h === '::1' || h.endsWith('.localhost');
+}
+
+// 기다리는 동안 보일 문구. 지난 시간(ms)에 따라 바뀜
+export const PENDING_STEPS = [
+  [0, '자료를 찾고 있어요'],
+  [1500, '답변을 쓰고 있어요'],
+];
+export const SLOW_AFTER_MS = 12000;
+
+export function pendingStatus(ms) {
+  const t = Math.max(0, Number(ms) || 0);
+  let text = PENDING_STEPS[0][1];
+  for (const [at, s] of PENDING_STEPS) if (t >= at) text = s;
+  return { text, seconds: Math.floor(t / 1000), slow: t >= SLOW_AFTER_MS };
+}
+
+// 답변이 왔을 때 대화칸의 scrollTop. 값은 모두 대화칸 안의 위치(px)
+// 질문과 답변이 한 화면에 들어가면 끝까지 보이게 내리고,
+// 안 들어가면 답변 처음(질문이 짧으면 질문 처음)이 위쪽에 오게 함
+export function answerScrollTop({ questionTop, answerTop, answerBottom, viewHeight, maxScroll, pad = 16 }) {
+  const start = answerTop - questionTop <= viewHeight / 3 ? questionTop : answerTop;
+  const top = answerBottom - start + pad * 2 <= viewHeight
+    ? answerBottom + pad - viewHeight
+    : start - pad;
+  return Math.round(Math.min(Math.max(0, top), Math.max(0, maxScroll)));
 }
 
 // ---------------------------------------------------------------- 답변의 [n]

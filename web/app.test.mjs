@@ -30,6 +30,8 @@ test('행사 기획 입력칸을 한 질문 문장으로 합침', () => {
   assert.equal(r.ok, true);
   assert.ok(r.value.startsWith('[행사 기획] 행사 종류: MT / 장소: 교외 펜션 / 날짜: 2026-12-05 / 내용: 30명 1박 2일. '));
   assert.ok(!r.value.includes('\n'), '한 줄이어야 함');
+  // 말풍선에는 입력한 칸만 짧게
+  assert.equal(r.summary, '행사 종류: MT / 장소: 교외 펜션 / 날짜: 2026-12-05 / 내용: 30명 1박 2일');
 });
 
 test('행사 기획: 빈 칸은 빼고, 행사 종류는 꼭 필요', () => {
@@ -37,6 +39,7 @@ test('행사 기획: 빈 칸은 빼고, 행사 종류는 꼭 필요', () => {
   assert.equal(r.ok, true);
   assert.ok(r.value.startsWith('[행사 기획] 행사 종류: 축제 부스. '));
   assert.ok(!r.value.includes('장소'));
+  assert.equal(r.summary, '행사 종류: 축제 부스');
 
   const none = lib.buildEventQuestion({ place: '동아리방' });
   assert.equal(none.ok, false);
@@ -46,6 +49,36 @@ test('행사 기획: 빈 칸은 빼고, 행사 종류는 꼭 필요', () => {
 test('행사 기획: 합친 질문도 1,000자 제한', () => {
   const r = lib.buildEventQuestion({ type: 'MT', details: '가'.repeat(1000) });
   assert.equal(r.ok, false);
+});
+
+// ---------------------------------------------------------------- 화면 동작
+
+test('이 PC 주소인지 (개발용 링크는 여기서만)', () => {
+  for (const h of ['localhost', 'LOCALHOST', '127.0.0.1', '[::1]', 'app.localhost']) assert.equal(lib.isLocalHost(h), true, h);
+  for (const h of ['d2op0trztua7ms.cloudfront.net', 'localhost.example.com', '127.0.0.2', '', null]) assert.equal(lib.isLocalHost(h), false, String(h));
+});
+
+test('기다리는 동안 문구: 자료 찾기 -> 1.5초 뒤 답변 쓰기, 초는 내림, 12초부터 오래 걸림 안내', () => {
+  assert.deepEqual(lib.pendingStatus(0), { text: '자료를 찾고 있어요', seconds: 0, slow: false });
+  assert.equal(lib.pendingStatus(1499).text, '자료를 찾고 있어요');
+  assert.equal(lib.pendingStatus(1500).text, '답변을 쓰고 있어요');
+  assert.equal(lib.pendingStatus(5999).seconds, 5);
+  assert.equal(lib.pendingStatus(11999).slow, false);
+  assert.equal(lib.pendingStatus(12000).slow, true);
+  assert.equal(lib.pendingStatus(-5).seconds, 0);
+});
+
+test('답변이 오면: 다 들어가면 끝까지, 길면 답변 처음이 위에 (맨 아래로 가지 않음)', () => {
+  const view = { viewHeight: 600, pad: 16 };
+  // 짧은 질문 + 짧은 답변: 답변 끝이 아래에 오게 (= 맨 아래)
+  assert.equal(lib.answerScrollTop({ ...view, questionTop: 1000, answerTop: 1060, answerBottom: 1400, maxScroll: 816 }), 816);
+  // 짧은 질문 + 긴 답변: 질문 처음이 위에
+  assert.equal(lib.answerScrollTop({ ...view, questionTop: 1000, answerTop: 1060, answerBottom: 2400, maxScroll: 1816 }), 984);
+  // 긴 질문(화면 1/3보다 김) + 긴 답변: 답변 처음이 위에
+  assert.equal(lib.answerScrollTop({ ...view, questionTop: 1000, answerTop: 1300, answerBottom: 2400, maxScroll: 1816 }), 1284);
+  // 0보다 작거나 끝을 넘지 않음
+  assert.equal(lib.answerScrollTop({ ...view, questionTop: 10, answerTop: 70, answerBottom: 900, maxScroll: 316 }), 0);
+  assert.equal(lib.answerScrollTop({ ...view, questionTop: 10, answerTop: 70, answerBottom: 300, maxScroll: 0 }), 0);
 });
 
 // ---------------------------------------------------------------- [n] 나누기
@@ -224,8 +257,33 @@ test('설정 확인: 자리 표시 값은 설정 안 된 것으로', () => {
 
 // ---------------------------------------------------------------- 가짜 응답이 약속한 모양인지
 
+// index.html의 질문 예시 버튼: [질문, 그룹이 있어야 보이는지]
+function exampleChips() {
+  const html = readFileSync(new URL('./index.html', import.meta.url), 'utf8');
+  return [...html.matchAll(/<li( data-needs-group[^>]*)?><button[^>]*data-example="([^"]+)"/g)].map((m) => [m[2], !!m[1]]);
+}
+
+test('질문 예시: 학교 규정 질문은 모두에게, 동아리 질문은 그룹이 있을 때만', () => {
+  const chips = exampleChips();
+  assert.deepEqual(chips, [
+    ['동아리방에서 전기난로를 써도 되나요?', false],
+    ['휴학은 몇 학기까지 할 수 있나요?', false],
+    ['총무는 어떤 일을 하나요?', true],
+    ['가을 MT 장소 후보는 어디였나요?', true],
+  ]);
+  // 시연 모드에서도 예시마다 근거 있는 답이 나옴
+  for (const [q, needsGroup] of chips) {
+    const { status, body } = mockAsk(q, 'qa');
+    assert.equal(status, 200, q);
+    assert.equal(body.no_answer, false, q);
+    const kinds = new Set(body.sources.map((s) => s.kind));
+    if (needsGroup) assert.ok(kinds.has('club_manual'), `${q}: 동아리 자료 출처`);
+    else assert.ok(kinds.has('school_rule'), `${q}: 학교 규정 출처`);
+  }
+});
+
 test('가짜 응답은 POST /ask 약속과 같은 모양', () => {
-  for (const [q, mode] of [['전기난로?', 'qa'], ['[행사 기획] 행사 종류: MT', 'event'], ['회의록?', 'qa']]) {
+  for (const [q, mode] of [['전기난로?', 'qa'], ['[행사 기획] 행사 종류: MT', 'event'], ['회의록?', 'qa'], ...exampleChips().map(([c]) => [c, 'qa'])]) {
     const { status, body } = mockAsk(q, mode);
     assert.equal(status, 200);
     assert.equal(typeof body.answer, 'string');

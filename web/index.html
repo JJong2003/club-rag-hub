@@ -5,9 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="referrer" content="no-referrer">
   <meta name="color-scheme" content="light dark">
-  <meta name="theme-color" content="#1f4e8c">
-  <title>동아리 운영 도우미</title>
-  <link rel="icon" href="data:,">
+  <meta name="description" content="충남대 ANA 동아리의 학교 규정과 동아리 자료를 찾아 출처와 함께 답하는 도우미입니다.">
+  <!-- 휴대폰 브라우저 윗부분 색. 머리 배경과 같게 -->
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#171d26" media="(prefers-color-scheme: dark)">
+  <title>동아리 운영 도우미 · 충남대 ANA</title>
+  <!-- 탭 아이콘: 머리의 A 로고와 같은 모양 -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231f4e8c'/%3E%3Cpath fill='%23fff' fill-rule='evenodd' d='M13.6 7h4.8L25 25h-4l-1.4-4h-7.2L11 25H7zm.1 10.6h4.6L16 11.4z'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="style.css">
   <!-- 배포 때 만드는 설정 파일 (API 주소, Cognito 도메인, 클라이언트 ID). 예시는 config.example.js -->
   <script src="config.js"></script>
@@ -18,7 +22,10 @@
 
   <header class="topbar">
     <div class="brand">
-      <span class="brand-mark" aria-hidden="true">A</span>
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+        <rect width="32" height="32" rx="8"></rect>
+        <path fill-rule="evenodd" d="M13.6 7h4.8L25 25h-4l-1.4-4h-7.2L11 25H7zm.1 10.6h4.6L16 11.4z"></path>
+      </svg>
       <span class="brand-text">
         <span class="brand-name">동아리 운영 도우미</span>
         <span class="brand-sub">충남대 ANA · 학교 규정과 동아리 자료</span>
@@ -43,7 +50,8 @@
         <p class="notice" id="login-message" role="alert" hidden></p>
         <button type="button" class="btn primary wide" id="login-button">로그인</button>
         <p class="muted" id="login-help">동아리 계정(메일)으로 로그인합니다.</p>
-        <p class="muted" id="mock-link-box" hidden><a id="mock-link" href="?mock=1">가짜 응답으로 화면만 보기</a></p>
+        <!-- 개발용: 이 PC(localhost)에서만 보임 -->
+        <p class="muted small" id="mock-link-box" hidden><a id="mock-link" href="?mock=1">가짜 응답으로 화면만 보기</a></p>
       </div>
     </section>
 
@@ -52,20 +60,25 @@
       <div class="messages" id="messages">
         <div class="empty" id="empty-state">
           <h1 class="empty-title">무엇이 궁금한가요?</h1>
-          <p class="muted">학교 규정과 동아리 자료에서 근거를 찾아 답하고, 문장 끝에 출처 번호를 붙입니다.</p>
+          <p class="muted" id="empty-lead">학교 규정과 동아리 자료에서 근거를 찾아 답하고, 문장 끝에 출처 번호를 붙입니다.</p>
           <ul class="examples" aria-label="질문 예시">
             <li><button type="button" class="chip" data-example="동아리방에서 전기난로를 써도 되나요?">동아리방에서 전기난로를 써도 되나요?</button></li>
-            <li><button type="button" class="chip" data-example="동아리 MT를 가려면 학교에 무엇을 내야 하나요?">동아리 MT를 가려면 학교에 무엇을 내야 하나요?</button></li>
-            <li><button type="button" class="chip" data-example="동아리 회의록은 어디에 정리하나요?">동아리 회의록은 어디에 정리하나요?</button></li>
+            <li><button type="button" class="chip" data-example="휴학은 몇 학기까지 할 수 있나요?">휴학은 몇 학기까지 할 수 있나요?</button></li>
+            <!-- 동아리 자료 질문: 그룹이 있는 사람에게만 보임 -->
+            <li data-needs-group hidden><button type="button" class="chip" data-example="총무는 어떤 일을 하나요?">총무는 어떤 일을 하나요?</button></li>
+            <li data-needs-group hidden><button type="button" class="chip" data-example="가을 MT 장소 후보는 어디였나요?">가을 MT 장소 후보는 어디였나요?</button></li>
           </ul>
           <p class="muted small" id="mock-hint" hidden>시연 모드: 질문에 '날씨'를 넣으면 근거 없음, '오류'를 넣으면 오류 화면이 나옵니다.</p>
         </div>
       </div>
 
       <form class="composer" id="composer" novalidate>
-        <div class="mode-switch" role="group" aria-label="질문 방식">
-          <button type="button" class="mode-btn" data-mode="qa" aria-pressed="true">질문</button>
-          <button type="button" class="mode-btn" data-mode="event" aria-pressed="false">행사 기획</button>
+        <div class="composer-top">
+          <div class="mode-switch" role="group" aria-label="질문 방식">
+            <button type="button" class="mode-btn" data-mode="qa" aria-pressed="true">질문</button>
+            <button type="button" class="mode-btn" data-mode="event" aria-pressed="false">행사 기획</button>
+          </div>
+          <p class="count" id="question-count" aria-live="off">0 / 1,000자</p>
         </div>
 
         <div class="composer-body">
@@ -78,7 +91,7 @@
             <legend class="sr-only">행사 정보 (행사 종류는 꼭 적어 주세요)</legend>
             <div class="field">
               <label for="ev-type">행사 종류 <span class="req">필수</span></label>
-              <input id="ev-type" type="text" autocomplete="off" placeholder="예: MT, 축제 부스, 정기 공연">
+              <input id="ev-type" type="text" autocomplete="off" placeholder="예: MT">
             </div>
             <div class="field">
               <label for="ev-place">장소</label>
@@ -90,18 +103,15 @@
             </div>
             <div class="field wide">
               <label for="ev-details">내용</label>
-              <textarea id="ev-details" rows="2" placeholder="예: 30명 참석, 1박 2일, 회비 걷기" aria-describedby="composer-hint question-count"></textarea>
+              <textarea id="ev-details" rows="1" placeholder="예: 30명, 1박 2일" aria-describedby="composer-hint question-count"></textarea>
             </div>
           </fieldset>
 
           <button type="submit" class="btn primary send" id="send-button">보내기</button>
         </div>
 
-        <div class="composer-foot">
-          <p class="hint" id="composer-hint">Enter 보내기 · Shift+Enter 줄바꿈</p>
-          <p class="count" id="question-count" aria-live="off">0 / 1,000자</p>
-        </div>
         <p class="field-error" id="composer-error" role="alert" hidden></p>
+        <p class="hint" id="composer-hint">Enter 보내기 · Shift+Enter 줄바꿈</p>
       </form>
     </section>
   </main>
