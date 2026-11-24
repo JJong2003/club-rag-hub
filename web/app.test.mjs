@@ -55,7 +55,7 @@ test('행사 기획: 합친 질문도 1,000자 제한', () => {
 
 test('이 PC 주소인지 (개발용 링크는 여기서만)', () => {
   for (const h of ['localhost', 'LOCALHOST', '127.0.0.1', '[::1]', 'app.localhost']) assert.equal(lib.isLocalHost(h), true, h);
-  for (const h of ['d2op0trztua7ms.cloudfront.net', 'localhost.example.com', '127.0.0.2', '', null]) assert.equal(lib.isLocalHost(h), false, String(h));
+  for (const h of ['d111111abcdef8.cloudfront.net', 'localhost.example.com', '127.0.0.2', '', null]) assert.equal(lib.isLocalHost(h), false, String(h));
 });
 
 test('기다리는 동안 문구: 자료 찾기 -> 1.5초 뒤 답변 쓰기, 초는 내림, 12초부터 오래 걸림 안내', () => {

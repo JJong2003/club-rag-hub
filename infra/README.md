@@ -19,13 +19,14 @@ Cognito와 Gateway도 같은 이유로 스크립트로 만듭니다. 앱 스택�
 ## KB 여러 개 연결
 
 ```
-                      ┌ kb-registry (DynamoDB): 연결된 KB와 검색할 수 있는 그룹
-질문 → MCP 도구 Lambda ┤
-                      ├ KB school   ← s3://<문서 버킷>/school/kb/     검색: 모두
-                      └ KB club-ana ← s3://<문서 버킷>/clubs/ana/kb/  검색: ana 그룹
+질문 (웹: ask Lambda / MCP: 도구 Lambda)
+  └ kb_search
+      ├ kb-registry (DynamoDB): 연결된 KB와 검색할 수 있는 그룹
+      ├ KB school   ← s3://<문서 버킷>/school/kb/     검색: 모두
+      └ KB club-ana ← s3://<문서 버킷>/clubs/ana/kb/  검색: ana 그룹
 ```
 
-- MCP 도구 Lambda는 사용자가 볼 수 있는 KB를 레지스트리에서 고릅니다. 고른 KB마다 Retrieve를 호출하고, 결과를 KB별로 묶어서 돌려줍니다. 답은 사용자의 LLM(Claude 등)이 씁니다. (검색 도구는 만드는 중)
+- 웹의 ask Lambda와 MCP 도구 Lambda는 같은 검색 코드(`src/kb_search`)를 씁니다. 사용자가 볼 수 있는 KB를 레지스트리에서 고르고, 고른 KB마다 Retrieve를 호출해 결과를 KB별로 묶습니다. 답은 웹에서는 Claude Sonnet 4.6이 출처 번호를 붙여 쓰고, MCP에서는 사용자의 LLM(Claude 등)이 씁니다.
 - KB끼리 점수로 순위를 매기지 않습니다. 11/23 점검에서 동아리 자료 점수가 학교 조문보다 높게 나와서, 점수순으로 자르면 학교 규정이 빠졌어요.
 - 모든 KB는 같은 임베딩(Titan Text Embeddings V2, 1024차원, cosine)을 씁니다.
 - KB마다 IAM 역할을 따로 줘서, 각 KB는 자기 S3 폴더와 자기 벡터 인덱스만 읽고 씁니다.
