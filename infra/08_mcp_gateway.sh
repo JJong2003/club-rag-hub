@@ -15,7 +15,8 @@ TOOLS_FUNCTION="${APP_STACK}-tools"
 INTERCEPTOR_FUNCTION="${APP_STACK}-interceptor"
 TOOL_SCHEMA_FILE="../src/tools/tool_schema.json"
 # MCP 클라이언트(Claude)가 서버에 처음 붙을 때 읽는 안내문입니다.
-INSTRUCTIONS="충남대학교 동아리(ANA) 운영을 돕는 자료 검색 서버입니다. 지금은 연결 시험용 ping 도구만 있습니다."
+# JSON 안에 그대로 들어가므로 큰따옴표와 역슬래시를 쓰지 마세요.
+INSTRUCTIONS="충남대학교 동아리(ANA) 운영을 돕는 자료 검색 서버입니다. 학교 규정과 동아리 운영 자료(노션)에서 근거를 찾습니다. list_sources로 볼 수 있는 자료를 확인하고, search로 관련 문단을 찾고, 동아리 자료 전체가 필요하면 read_document로 읽으세요. 답변은 찾은 근거로만 쓰고 출처(규정명·조문, 노션 경로·연도)를 붙이세요."
 
 if [ -z "${USER_POOL_ID:-}" ] || [ -z "${MCP_CLIENT_ID_CLAUDE:-}" ] || [ -z "${MCP_CLIENT_ID_CLI:-}" ]; then
   die "로그인(Cognito) 정보가 없습니다. 07_cognito.sh를 먼저 실행하세요."
