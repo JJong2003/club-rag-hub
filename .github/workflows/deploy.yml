@@ -1,6 +1,9 @@
-# main에 앱 코드가 push되면 테스트 → SAM 배포 → /health 확인 순서로 돌아갑니다.
+# main에 앱 코드나 웹 화면(web/)이 push되면 테스트 → SAM 배포 → /health 확인 → 웹 화면 올리기 → 확인 순서로 돌아갑니다.
+# 웹만 바뀌어도 앱 배포 단계를 같이 돕니다 (바뀐 게 없으면 sam deploy는 그냥 지나감).
 # AWS 키는 쓰지 않습니다. GitHub OIDC로 배포 역할(club-rag-hub-github-deploy)을 잠깐 빌립니다.
-# 필요한 저장소 설정은 Secrets의 AWS_ROLE_ARN 하나입니다 (infra/06_github_actions.sh가 등록).
+# 저장소 설정은 infra/06_github_actions.sh가 등록합니다.
+#   Secrets  : AWS_ROLE_ARN, WEB_BUCKET (계정 ID가 들어 있어 로그에서 가려짐)
+#   Variables: USER_POOL_ID, WEB_CLIENT_ID, CLI_CLIENT_ID, WEB_DISTRIBUTION_ID, WEB_URL, COGNITO_DOMAIN
 name: deploy
 
 on:
@@ -10,6 +13,7 @@ on:
       - template.yaml
       - src/**
       - tests/**
+      - web/**
       - pyproject.toml
       - requirements-dev.txt
       - .github/workflows/deploy.yml
@@ -22,6 +26,10 @@ permissions:
 concurrency:
   group: deploy-app
   cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash        # -e와 pipefail을 켠 bash (파이프 중간 실패도 잡음)
 
 env:
   AWS_REGION: ap-northeast-2
@@ -38,11 +46,35 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements-dev.txt
       - run: python -m pytest -q
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"   # web/*.js를 ES 모듈로 읽으려면 22 이상
+      - name: 웹 화면 로직 시험
+        run: node --test web/app.test.mjs
 
   deploy:
     needs: test
     runs-on: ubuntu-latest
+    env:
+      # 저장소 Variables. 웹 화면(config.js)이나 로그인 토큰에도 보이는 값이라 로그에 나와도 괜찮습니다.
+      USER_POOL_ID: ${{ vars.USER_POOL_ID }}
+      WEB_CLIENT_ID: ${{ vars.WEB_CLIENT_ID }}
+      CLI_CLIENT_ID: ${{ vars.CLI_CLIENT_ID }}
+      WEB_DISTRIBUTION_ID: ${{ vars.WEB_DISTRIBUTION_ID }}
+      WEB_URL: ${{ vars.WEB_URL }}
+      COGNITO_DOMAIN: ${{ vars.COGNITO_DOMAIN }}
     steps:
+      - name: 저장소 설정 확인
+        env:
+          WEB_BUCKET: ${{ secrets.WEB_BUCKET }}
+        run: |
+          for v in USER_POOL_ID WEB_CLIENT_ID CLI_CLIENT_ID WEB_DISTRIBUTION_ID WEB_URL COGNITO_DOMAIN WEB_BUCKET; do
+            if [ -z "${!v}" ]; then
+              echo "::error::저장소 Secrets/Variables에 $v가 없습니다. infra/06_github_actions.sh를 실행하세요."
+              exit 1
+            fi
+          done
+
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
@@ -63,6 +95,7 @@ jobs:
         run: |
           ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
           echo "::add-mask::${ACCOUNT_ID}"
+          # ID 셋은 template.yaml에서 NoEcho라 sam 출력에 *****로 보입니다.
           sam deploy \
             --stack-name "$STACK_NAME" \
             --s3-bucket "${PREFIX}-artifacts-${ACCOUNT_ID}" \
@@ -71,6 +104,8 @@ jobs:
             --region "$AWS_REGION" \
             --tags Project=cloudarchitect-termproj \
             --parameter-overrides "Prefix=${PREFIX}" "AppVersion=${GITHUB_SHA::7}" \
+              "UserPoolId=${USER_POOL_ID}" "WebClientId=${WEB_CLIENT_ID}" "CliClientId=${CLI_CLIENT_ID}" \
+              "WebOrigin=${WEB_URL%/}" \
             --no-confirm-changeset --no-fail-on-empty-changeset --no-progressbar
 
       - name: GET /health
@@ -80,3 +115,106 @@ jobs:
           echo "$URL"
           curl -sS --fail-with-body --retry 3 --retry-all-errors "$URL"
           echo
+
+      # 여기부터 웹 화면. infra/deploy_web.sh와 같은 방식입니다. 한쪽을 고치면 다른 쪽도 같이 고칩니다.
+      - name: 웹 화면 모으기와 config.js
+        run: |
+          API_URL="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+            --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" --output text)"
+          WEB_URL="${WEB_URL%/}"
+          # config.js에 넣는 값이 예상한 모양인지 확인합니다 (따옴표 등이 섞여 JS가 깨지지 않게).
+          check_value() { [[ "$2" =~ $3 ]] || { echo "::error::$1 값의 모양이 이상합니다"; exit 1; }; }
+          check_value ApiUrl "$API_URL" '^https://[a-z0-9]+\.execute-api\.[a-z0-9-]+\.amazonaws\.com$'
+          check_value COGNITO_DOMAIN "$COGNITO_DOMAIN" '^[a-z0-9.-]+$'
+          check_value WEB_CLIENT_ID "$WEB_CLIENT_ID" '^[0-9a-z]{20,40}$'
+          check_value WEB_URL "$WEB_URL" '^https://[a-z0-9.-]+$'
+          rm -rf _site
+          mkdir -p _site
+          cp -R web/. _site/
+          # 시험 파일, 예시 설정(config.example.js)은 올리지 않습니다.
+          rm -f _site/config*.js _site/*.test.mjs
+          cat > _site/config.js <<EOF
+          // 배포 때 만든 파일입니다 (deploy.yml 또는 infra/deploy_web.sh). 고치지 마세요.
+          window.APP_CONFIG = {
+            apiUrl: '${API_URL}',
+            cognitoDomain: '${COGNITO_DOMAIN}',
+            clientId: '${WEB_CLIENT_ID}',
+            redirectUri: '${WEB_URL}/',
+            mock: false,
+          };
+          EOF
+          ls -l _site
+
+      - name: 웹 버킷에 올리기
+        env:
+          WEB_BUCKET: ${{ secrets.WEB_BUCKET }}
+        run: |
+          # 확장자로 형식을 정합니다. ES 모듈(app.js)은 JavaScript 형식이어야 브라우저가 실행합니다.
+          content_type() {
+            case "$1" in
+              *.html) echo 'text/html; charset=utf-8' ;;
+              *.js | *.mjs) echo 'text/javascript; charset=utf-8' ;;
+              *.css) echo 'text/css; charset=utf-8' ;;
+              *.json) echo 'application/json' ;;
+              *.svg) echo 'image/svg+xml' ;;
+              *.png) echo 'image/png' ;;
+              *.ico) echo 'image/x-icon' ;;
+              *) return 1 ;;
+            esac
+          }
+          # index.html, config.js: 늘 새로 받음. 나머지: 브라우저는 매번 바뀌었는지 묻고, CloudFront는 하루 보관(배포 때 무효화).
+          cache_control() {
+            case "$1" in
+              index.html | config.js) echo 'no-cache' ;;
+              *) echo 'max-age=0, s-maxage=86400' ;;
+            esac
+          }
+          upload() {
+            local ct
+            ct="$(content_type "$1")" || { echo "::error::형식을 모르는 파일입니다: web/$1"; exit 1; }
+            aws s3 cp "_site/$1" "s3://${WEB_BUCKET}/$1" \
+              --content-type "$ct" --cache-control "$(cache_control "$1")" --only-show-errors
+            echo "올림: $1 ($ct)"
+          }
+          # index.html은 다른 파일이 다 올라간 뒤 마지막에 올립니다.
+          mapfile -t FILES < <(cd _site && find . -type f ! -name index.html | sed 's|^\./||' | sort)
+          for f in "${FILES[@]}"; do upload "$f"; done
+          upload index.html
+          # web/에 없는 파일은 지웁니다. 방금 모두 올렸으므로 크기만 비교하면 다시 올리는 파일은 없습니다.
+          aws s3 sync _site/ "s3://${WEB_BUCKET}/" --delete --size-only --no-progress
+
+      - name: CloudFront 무효화
+        run: |
+          INV_ID="$(aws cloudfront create-invalidation --distribution-id "$WEB_DISTRIBUTION_ID" \
+            --paths '/*' --query Invalidation.Id --output text)"
+          echo "무효화 $INV_ID 기다리는 중"
+          aws cloudfront wait invalidation-completed --distribution-id "$WEB_DISTRIBUTION_ID" --id "$INV_ID"
+
+      - name: 웹 확인 (웹 주소 200, config.js, 토큰 없는 /ask 401)
+        run: |
+          WEB_URL="${WEB_URL%/}"
+          ASK_URL="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+            --query "Stacks[0].Outputs[?OutputKey=='AskUrl'].OutputValue" --output text)"
+          fail=0
+          code="$(curl -sS -o /dev/null -w '%{http_code}' --retry 3 --retry-all-errors "${WEB_URL}/")"
+          echo "웹 주소: HTTP $code"
+          [ "$code" = 200 ] || { echo "::error::웹 주소가 200이 아닙니다"; fail=1; }
+          for f in config.js app.js; do
+            curl -sS -D "web-$f.headers" -o "web-$f" "${WEB_URL}/$f"
+            ct="$(grep -i '^content-type:' "web-$f.headers" | tr -d '\r' || true)"
+            echo "$f $ct"
+            echo "$ct" | grep -qiE 'content-type: *(text|application)/javascript' \
+              || { echo "::error::$f 형식이 JavaScript가 아닙니다"; fail=1; }
+          done
+          # CloudFront가 돌려준 config.js가 방금 만든 것과 같으면 mock: false와 실제 값이 들어간 것입니다.
+          if cmp -s web-config.js _site/config.js && grep -q '^  mock: false,$' web-config.js; then
+            echo "config.js: 방금 만든 것과 같음 (mock: false)"
+          else
+            echo "::error::CloudFront의 config.js가 방금 만든 것과 다릅니다"
+            fail=1
+          fi
+          code="$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$ASK_URL" \
+            -H 'Content-Type: application/json' -d '{"question":"check"}')"
+          echo "토큰 없는 POST /ask: HTTP $code"
+          [ "$code" = 401 ] || { echo "::error::토큰 없는 /ask가 401이 아닙니다"; fail=1; }
+          exit "$fail"

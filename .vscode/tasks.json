@@ -18,7 +18,8 @@
       "problemMatcher": []
     },
     {
-      "label": "github: Actions 시크릿 등록 (06)",
+      // 배포 역할 ARN·웹 버킷(Secrets)과 사용자 풀·클라이언트·배포 ID·웹 주소(Variables)를 등록합니다.
+      "label": "github: Actions 시크릿·변수 등록 (06)",
       "type": "shell",
       "command": "bash infra/06_github_actions.sh",
       "problemMatcher": []
@@ -40,6 +41,20 @@
       "label": "app: /health 호출",
       "type": "shell",
       "command": "source infra/.state/outputs.env && curl -sS \"$HEALTH_URL\" && echo",
+      "problemMatcher": []
+    },
+    {
+      // web/를 웹 버킷에 올리고(config.js는 이때 만듦) CloudFront 캐시를 비웁니다. 평소 배포는 main push로 Actions가 합니다.
+      "label": "web: 화면 배포 (deploy_web)",
+      "type": "shell",
+      "command": "bash infra/deploy_web.sh",
+      "problemMatcher": []
+    },
+    {
+      // 리소스를 바꾸지 않는 점검. 시험 계정으로 /ask를 한 번 부릅니다.
+      "label": "web: 점검 (check_web)",
+      "type": "shell",
+      "command": "bash infra/check_web.sh",
       "problemMatcher": []
     },
     {

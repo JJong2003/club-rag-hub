@@ -7,7 +7,7 @@
 
 | 구분 | 만드는 곳 | 리소스 |
 |---|---|---|
-| 데이터 | 이 폴더의 스크립트 | S3 버킷, DynamoDB 테이블, S3 Vectors, Bedrock KB, KB용 IAM 역할, GitHub OIDC, Actions 시크릿 |
+| 데이터 | 이 폴더의 스크립트 | S3 버킷, DynamoDB 테이블, S3 Vectors, Bedrock KB, KB용 IAM 역할, GitHub OIDC, Actions 시크릿·변수 |
 | 로그인, MCP 서버 | 이 폴더의 스크립트 | Cognito 사용자 풀(계정, 앱 클라이언트 3개), AgentCore Gateway(MCP 서버), Gateway 실행 역할 |
 | 웹 호스팅 | 이 폴더의 스크립트 | S3 웹 버킷(비공개), CloudFront 배포와 OAC |
 | 앱 | 저장소 루트의 `template.yaml` (SAM) | Lambda(`/health`, MCP 도구, Gateway 인터셉터), HTTP API, Lambda 실행 역할, 로그 그룹 |
@@ -52,8 +52,9 @@ cd infra
 bash run_all.sh
 ```
 
-하나씩 돌릴 때는 순서를 지켜 주세요: `00_check` → `02_storage` → `03_vector_bucket` → `04_add_kb`(KB마다) → `05_github_oidc` → `06_github_actions` → `09_web` → `07_cognito`. `08_mcp_gateway`는 앱을 배포한 뒤에 돌립니다.
+하나씩 돌릴 때는 순서를 지켜 주세요: `00_check` → `02_storage` → `03_vector_bucket` → `04_add_kb`(KB마다) → `09_web` → `07_cognito` → `05_github_oidc` → `06_github_actions`. `08_mcp_gateway`는 앱을 배포한 뒤에 돌립니다.
 `09_web`이 `07_cognito`보다 먼저인 이유는 07이 만드는 웹 앱 클라이언트가 09의 웹 주소를 돌아갈 주소로 쓰기 때문이에요. 09를 안 돌리고 07을 돌리면 07이 안내를 띄우고 멈춥니다.
+`05`, `06`이 마지막인 이유는 09와 07이 만든 값(웹 버킷, CloudFront 배포 ID, 사용자 풀, 클라이언트 ID)을 배포 역할 권한과 Actions 설정에 쓰기 때문이에요. 값이 없으면 안내를 띄우고 멈춥니다.
 `01_budget`은 `run_all.sh`에서 뺐습니다. 이 계정은 학교 AWS Organization 소속이라 서비스 제어 정책(SCP)이 예산(Budgets)을 막습니다.
 이미 있는 리소스는 건너뛰기 때문에, 중간에 멈추면 원인만 고치고 다시 돌리면 됩니다.
 만든 리소스의 ID는 `.state/outputs.env`에 적힙니다. 태그로 확인하려면 `bash list_tagged.sh`를 실행하세요.
@@ -62,7 +63,10 @@ bash run_all.sh
 
 1. **Anthropic 모델 사용 양식**: Bedrock 콘솔(서울) → 모델 카탈로그 → Claude 모델 선택 → 사용 사례 양식 제출 → 플레이그라운드에서 질문 한 번.
 2. **GitHub 저장소**: 저장소 루트에서 `git init` → 첫 커밋 → `gh repo create JJong2003/club-rag-hub --public --source . --push`.
-3. **Actions 시크릿**: `bash 06_github_actions.sh`를 실행합니다(`gh` 로그인 필요). `05`가 `.state/outputs.env`에 적어 둔 `DEPLOY_ROLE_ARN`을 저장소 Secrets의 `AWS_ROLE_ARN`으로 등록하므로 직접 입력할 값은 없어요. 공개 저장소라 계정 ID가 Actions 로그에 찍히지 않도록 Variables가 아니라 Secrets에 둡니다. main 브랜치 보호는 하지 않습니다(혼자 하는 프로젝트, 11/23 결정).
+3. **Actions 시크릿·변수**: `bash 06_github_actions.sh`를 실행합니다(`gh` 로그인 필요). `05`, `07`, `09`가 `.state/outputs.env`에 적어 둔 값을 그대로 등록하므로 직접 입력할 값은 없어요. 다시 실행하면 덮어씁니다.
+   - Secrets: `AWS_ROLE_ARN`(배포 역할), `WEB_BUCKET`(웹 버킷 이름). 계정 ID가 들어 있어서 Actions 로그에 찍히지 않게 Secrets에 둡니다.
+   - Variables: `USER_POOL_ID`, `WEB_CLIENT_ID`, `CLI_CLIENT_ID`(점검용 cli 클라이언트, `MCP_CLIENT_ID_CLI`), `WEB_DISTRIBUTION_ID`, `WEB_URL`(끝 `/` 없이), `COGNITO_DOMAIN`. 웹 화면(`config.js`)이나 로그인 토큰에도 보이는 값이라 Variables에 둡니다.
+   - main 브랜치 보호는 하지 않습니다(혼자 하는 프로젝트, 11/23 결정).
 4. **문서 올리기**: 로컬 `data/` 아래 경로가 그대로 S3 키입니다(`data/school/kb/x.md` → `school/kb/x.md`). 저장소 루트에서 `python scripts/sync_s3.py <data/ 아래 경로>`로 올립니다.
    - `school`: 학교 규정 원본(`raw/`)과 조문(`kb/`). `prepare_school_kb.py`가 끝나면 자동으로 올립니다.
    - `clubs/ana`: ANA 자료. 개인정보 가림 결과를 확인한 뒤 직접 올립니다.
@@ -73,7 +77,8 @@ bash run_all.sh
 
 앱은 저장소 루트의 `template.yaml`로 `club-rag-hub-app` 스택에 배포합니다. Lambda, HTTP API, Lambda 실행 역할, 로그 그룹(14일 보관)이 들어 있어요.
 
-- **평소**: `template.yaml`, `src/`, `tests/`를 고쳐서 main에 push하면 `.github/workflows/deploy.yml`이 테스트 → `sam deploy` → `/health` 확인까지 합니다. Actions 화면에서 수동으로 돌릴 수도 있어요(workflow_dispatch).
+- **평소**: `template.yaml`, `src/`, `tests/`, `web/`을 고쳐서 main에 push하면 `.github/workflows/deploy.yml`이 테스트(pytest, 웹 로직 `node --test`) → `sam deploy` → `/health` 확인 → 웹 화면 올리기 → 확인까지 합니다. 웹만 바뀌어도 앱 배포 단계를 같이 돌아요. Actions 화면에서 수동으로 돌릴 수도 있어요(workflow_dispatch).
+  - `sam deploy`의 `UserPoolId`, `WebClientId`, `CliClientId`, `WebOrigin`은 저장소 Variables에서 넘깁니다(06이 등록). 앞의 셋은 NoEcho라 로그에 `*****`로 보입니다.
 - **이 PC에서 바로**: `bash deploy_app.sh`. 같은 인자로 배포하고 `/health`를 부른 뒤 주소를 `.state/outputs.env`의 `HEALTH_URL`에 적습니다.
 - `GET /health`는 S3 문서 버킷 조회, kb-registry 조회, Titan 임베딩(1024차원) 호출을 한 번에 확인합니다. 모두 성공하면 200, 하나라도 실패하면 503이에요. 응답에는 계정 ID가 들어가지 않습니다.
 - 배포 역할은 스택 이름(`club-rag-hub-app-*`)으로 시작하는 리소스만 다룹니다. 그래서 Lambda 이름은 `${AWS::StackName}-<이름>`으로 짓고, 실행 역할 이름은 비워 둡니다(CloudFormation이 스택 이름으로 시작하게 지어 줌). 관리형 정책은 `AWSLambdaBasicExecutionRole`만 붙일 수 있어요.
@@ -99,6 +104,13 @@ bash run_all.sh
    - 로그인 후 돌아갈 주소와 로그아웃 후 돌아갈 주소: `<WEB_URL>/`, `http://localhost:5500/`(로컬 개발). 끝의 `/`까지 정확히 같아야 해요.
    - 토큰 유효 시간과 사용자 존재 오류 숨김은 MCP 클라이언트와 같습니다(액세스·ID 토큰 60분, 리프레시 토큰 30일).
    - 로그인 화면은 MCP와 같은 기본 화면(managed login 버전 1)이라 따로 꾸미기 설정이 없습니다.
+3. 화면 배포: 평소에는 main push로 Actions가 하고, 이 PC에서 화면만 바로 올릴 때는 `bash deploy_web.sh`(앱이 먼저 배포되어 있어야 함). 둘은 같은 방식입니다.
+   - `web/` 파일을 모으고 `config.js`를 만듭니다. `apiUrl`은 앱 스택 출력 `ApiUrl`, `cognitoDomain`·`clientId`는 Cognito 값, `redirectUri`는 `<WEB_URL>/`, `mock: false`. 저장소의 `config.example.js`와 시험 파일(`*.test.mjs`)은 올리지 않습니다.
+   - 형식은 확장자로 직접 정합니다(`.js`는 `text/javascript`). `aws s3`가 추측하게 두면 Windows에서 `.js`가 `text/plain`이 되기도 하는데, 그러면 브라우저가 ES 모듈을 실행하지 않아요.
+   - 캐시: `index.html`, `config.js`는 `no-cache`. 나머지는 `max-age=0, s-maxage=86400`(브라우저는 열 때마다 바뀌었는지 묻고, CloudFront는 하루 보관).
+   - `index.html`을 마지막에 올리고, `web/`에 없는 파일은 버킷에서 지운 뒤, CloudFront 무효화(`/*`)가 끝날 때까지 기다립니다(보통 30초 안팎).
+   - 배포 역할은 웹 버킷의 파일 올리기·지우기·목록과 이 배포의 무효화만 할 수 있습니다. 버킷 설정이나 CloudFront 설정은 못 바꿉니다.
+4. `bash check_web.sh`(리소스를 바꾸지 않음): 웹 주소 200과 HTTPS 넘김·보안 헤더, 파일마다 Content-Type과 캐시, 시험·예시 파일이 안 올라갔는지, `config.js`가 mock이 아니고 실제 값인지, S3 직접 접근 403, `/ask` CORS(웹 주소 허용, 다른 주소 거부), 토큰 없는 `/ask` 401과 CORS 헤더, 시험 계정 토큰으로 `/ask` 200과 출처, Cognito 로그인 화면·잘못된 돌아갈 주소 거부·토큰 요청 CORS·로그아웃 뒤 돌아오기를 확인합니다. 시험 계정으로 Claude를 한 번 부릅니다.
 
 ## MCP 서버 (AgentCore Gateway + Cognito)
 
@@ -130,4 +142,4 @@ Claude 앱 / Claude Code ──HTTPS + 로그인──▶ AgentCore Gateway ① 
 
 - 리소스를 만든 뒤에는 `config.env`의 `PREFIX`를 바꾸지 마세요. 이름이 달라져서 새로 만들어집니다.
 - `.state/`와 `config.local.env`는 커밋하지 않습니다 (`.gitignore`에 있음).
-- 배포 역할은 앱 스택 이름(`club-rag-hub-app-*`)으로 시작하는 리소스만 다루게 좁혔습니다. 다만 그 이름의 Lambda 역할에는 인라인 정책을 붙일 수 있어요. 이 부분은 나중에 권한 경계(permissions boundary)로 막을 수 있습니다.
+- 배포 역할은 앱 스택 이름(`club-rag-hub-app-*`)으로 시작하는 리소스, 웹 버킷의 파일, 웹 CloudFront 배포의 무효화만 다루게 좁혔습니다. 다만 그 이름의 Lambda 역할에는 인라인 정책을 붙일 수 있어요. 이 부분은 나중에 권한 경계(permissions boundary)로 막을 수 있습니다.

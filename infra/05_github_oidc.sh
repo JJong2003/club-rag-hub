@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # 05. GitHub Actions 배포 권한: OIDC 공급자 + 배포 역할
-#     AWS 키를 GitHub에 넣지 않고, main 브랜치의 워크플로만 이 역할을 잠깐 빌려 SAM 앱을 배포합니다.
+#     AWS 키를 GitHub에 넣지 않고, main 브랜치의 워크플로만 이 역할을 잠깐 빌려 SAM 앱과 웹 화면을 배포합니다.
+#     웹 버킷과 CloudFront 배포 ID가 필요해서 09_web.sh 다음에 실행합니다.
 source "$(dirname "$0")/lib.sh"
+
+[ -n "${WEB_DISTRIBUTION_ID:-}" ] || die "WEB_DISTRIBUTION_ID가 없습니다. 09_web.sh를 먼저 실행하세요."
 
 OIDC_HOST="token.actions.githubusercontent.com"
 OIDC_ARN="arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_HOST}"
@@ -52,6 +55,8 @@ EOF
 # 상태를 다시 읽을 때 부르는 읽기 권한입니다 (리소스 타입 스키마의 handlers 권한, 11/23 확인).
 # 11/23 첫 배포의 CloudTrail 기록에서 CloudFormation이 실제로 부른 API와 대조했습니다.
 # API Gateway는 HTTP API를 만들 때 자기 서비스 연결 역할을 만들려고 시도하므로, 그 역할만 만들 수 있게 열어 둡니다.
+# 웹 화면 배포(WebBucket*, WebInvalidation)는 웹 버킷 파일 올리기·지우기·목록과 이 CloudFront 배포의 무효화만 됩니다.
+# 버킷 설정·정책이나 CloudFront 설정은 바꿀 수 없습니다 (09_web.sh가 관리자 권한으로 만듦).
 cat > "$TMP_DIR/deploy-policy.json" <<EOF
 {
   "Version": "2012-10-17",
@@ -175,6 +180,24 @@ cat > "$TMP_DIR/deploy-policy.json" <<EOF
       "Effect": "Allow",
       "Action": [ "logs:DescribeLogGroups", "logs:DescribeResourcePolicies", "logs:DescribeIndexPolicies" ],
       "Resource": "*"
+    },
+    {
+      "Sid": "WebBucketList",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::${WEB_BUCKET}"
+    },
+    {
+      "Sid": "WebBucketObjects",
+      "Effect": "Allow",
+      "Action": [ "s3:PutObject", "s3:DeleteObject" ],
+      "Resource": "arn:aws:s3:::${WEB_BUCKET}/*"
+    },
+    {
+      "Sid": "WebInvalidation",
+      "Effect": "Allow",
+      "Action": [ "cloudfront:CreateInvalidation", "cloudfront:GetInvalidation" ],
+      "Resource": "arn:aws:cloudfront::${ACCOUNT_ID}:distribution/${WEB_DISTRIBUTION_ID}"
     }
   ]
 }
@@ -193,9 +216,9 @@ else
 fi
 aws iam put-role-policy --role-name "$DEPLOY_ROLE" --policy-name sam-app-deploy \
   --policy-document "file://${TMP_DIR}/deploy-policy.json"
-ok "  권한: ${APP_STACK} 스택 배포에 필요한 것만"
+ok "  권한: ${APP_STACK} 스택 배포, 웹 버킷 파일 올리기, CloudFront 무효화에 필요한 것만"
 
 DEPLOY_ROLE_ARN="$(aws iam get-role --role-name "$DEPLOY_ROLE" --query Role.Arn --output text)"
 save_state DEPLOY_ROLE_ARN "$DEPLOY_ROLE_ARN"
 
-log "다음: bash 06_github_actions.sh 가 이 ARN을 저장소 Secrets의 AWS_ROLE_ARN으로 등록합니다"
+log "다음: bash 06_github_actions.sh 가 이 ARN과 웹 배포 값을 저장소 Secrets·Variables에 등록합니다"
