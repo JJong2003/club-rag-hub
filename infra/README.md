@@ -29,8 +29,10 @@ Cognito와 Gateway도 같은 이유로 스크립트로 만듭니다. 앱 스택�
 - KB끼리 점수로 순위를 매기지 않습니다. 11/23 점검에서 동아리 자료 점수가 학교 조문보다 높게 나와서, 점수순으로 자르면 학교 규정이 빠졌어요.
 - 모든 KB는 같은 임베딩(Titan Text Embeddings V2, 1024차원, cosine)을 씁니다.
 - KB마다 IAM 역할을 따로 줘서, 각 KB는 자기 S3 폴더와 자기 벡터 인덱스만 읽고 씁니다.
-- 동아리 추가: `bash 04_add_kb.sh club-xxx clubs/xxx/kb/ FIXED_SIZE xxx`
+- 동아리 추가: `bash 04_add_kb.sh club-xxx clubs/xxx/kb/ FIXED_SIZE xxx "XXX 동아리 운영 자료" "XXX 동아리 노션 자료: 일정, 회의록, 행사 기록"`
+  - 5, 6번째 인자는 KB 이름과 한 줄 설명입니다 (선택). 검색 도구(`list_sources`)가 이 값을 보여 주고, LLM은 설명을 읽고 어느 KB를 검색할지 고르므로 무엇이 들어 있는지 적습니다. 빼고 다시 실행해도 이미 적힌 이름·설명은 그대로 남습니다.
 - 연합 행사: 레지스트리에서 상대 동아리 KB 항목의 `allowed_groups`에 우리 그룹을 추가합니다.
+- 검색 로컬 확인 (배포 없이 실제 KB로): 저장소 루트에서 `PYTHONPATH=src AWS_PROFILE=club-rag-hub AWS_REGION=ap-northeast-2 python -m kb_search "질문" --groups ana` (`--sources school`, `--list`, `--read <doc_id>`, `--json`)
 
 ## 실행 전 준비 (직접)
 
