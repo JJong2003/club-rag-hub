@@ -8,11 +8,13 @@
 | 구분 | 만드는 곳 | 리소스 |
 |---|---|---|
 | 데이터 | 이 폴더의 스크립트 | S3 버킷, DynamoDB 테이블, S3 Vectors, Bedrock KB, KB용 IAM 역할, GitHub OIDC, Actions 시크릿 |
-| 로그인, MCP 서버 | 이 폴더의 스크립트 | Cognito 사용자 풀(계정), AgentCore Gateway(MCP 서버), Gateway 실행 역할 |
+| 로그인, MCP 서버 | 이 폴더의 스크립트 | Cognito 사용자 풀(계정, 앱 클라이언트 3개), AgentCore Gateway(MCP 서버), Gateway 실행 역할 |
+| 웹 호스팅 | 이 폴더의 스크립트 | S3 웹 버킷(비공개), CloudFront 배포와 OAC |
 | 앱 | 저장소 루트의 `template.yaml` (SAM) | Lambda(`/health`, MCP 도구, Gateway 인터셉터), HTTP API, Lambda 실행 역할, 로그 그룹 |
 
 데이터 쪽을 스크립트로 뺀 이유는 두 가지예요. 동아리 KB를 하나 더 붙일 때 앱을 다시 배포하지 않아도 되고, 앱 스택을 지웠다 다시 만들어도 문서와 벡터가 남습니다.
 Cognito와 Gateway도 같은 이유로 스크립트로 만듭니다. 앱 스택을 지워도 계정이 남고, GitHub 배포 역할의 권한을 늘리지 않아도 됩니다.
+웹 버킷과 CloudFront도 GitHub 배포 역할에 CloudFront를 만드는 권한을 주지 않으려고 스크립트로 만듭니다.
 
 ## KB 여러 개 연결
 
@@ -48,7 +50,8 @@ cd infra
 bash run_all.sh
 ```
 
-하나씩 돌릴 때는 순서를 지켜 주세요: `00_check` → `02_storage` → `03_vector_bucket` → `04_add_kb`(KB마다) → `05_github_oidc` → `06_github_actions` → `07_cognito`. `08_mcp_gateway`는 앱을 배포한 뒤에 돌립니다.
+하나씩 돌릴 때는 순서를 지켜 주세요: `00_check` → `02_storage` → `03_vector_bucket` → `04_add_kb`(KB마다) → `05_github_oidc` → `06_github_actions` → `09_web` → `07_cognito`. `08_mcp_gateway`는 앱을 배포한 뒤에 돌립니다.
+`09_web`이 `07_cognito`보다 먼저인 이유는 07이 만드는 웹 앱 클라이언트가 09의 웹 주소를 돌아갈 주소로 쓰기 때문이에요. 09를 안 돌리고 07을 돌리면 07이 안내를 띄우고 멈춥니다.
 `01_budget`은 `run_all.sh`에서 뺐습니다. 이 계정은 학교 AWS Organization 소속이라 서비스 제어 정책(SCP)이 예산(Budgets)을 막습니다.
 이미 있는 리소스는 건너뛰기 때문에, 중간에 멈추면 원인만 고치고 다시 돌리면 됩니다.
 만든 리소스의 ID는 `.state/outputs.env`에 적힙니다. 태그로 확인하려면 `bash list_tagged.sh`를 실행하세요.
@@ -73,6 +76,28 @@ bash run_all.sh
 - `GET /health`는 S3 문서 버킷 조회, kb-registry 조회, Titan 임베딩(1024차원) 호출을 한 번에 확인합니다. 모두 성공하면 200, 하나라도 실패하면 503이에요. 응답에는 계정 ID가 들어가지 않습니다.
 - 배포 역할은 스택 이름(`club-rag-hub-app-*`)으로 시작하는 리소스만 다룹니다. 그래서 Lambda 이름은 `${AWS::StackName}-<이름>`으로 짓고, 실행 역할 이름은 비워 둡니다(CloudFormation이 스택 이름으로 시작하게 지어 줌). 관리형 정책은 `AWSLambdaBasicExecutionRole`만 붙일 수 있어요.
 
+## 웹 호스팅 (S3 + CloudFront)과 웹 로그인
+
+웹 챗봇 화면(빌드 없는 정적 파일)을 두는 곳입니다.
+
+```
+웹 브라우저 ──HTTPS──▶ CloudFront (OAC로 서명) ──▶ S3 웹 버킷 (비공개)
+    └ 로그인 ──▶ Cognito 로그인 화면 (MCP와 같은 사용자 풀, 웹 앱 클라이언트) ──▶ 웹 주소로 돌아옴
+```
+
+1. `bash 09_web.sh`
+   - 웹 버킷 `club-rag-hub-web-<계정ID>`: 퍼블릭 차단, 암호화(AES256), 버전 관리 끔. 버킷 정책은 HTTPS가 아닌 요청을 거부하고, 이 CloudFront 배포(`AWS:SourceArn`)만 객체를 읽게 합니다. 버킷 주소로 직접 열면 403이에요.
+   - CloudFront OAC `club-rag-hub-web`: S3용, 요청마다 서명(sigv4). OAC는 태그를 달 수 없어요.
+   - CloudFront 배포: 오리진은 버킷의 리전 주소, 기본 문서 `index.html`, HTTP는 HTTPS로 넘김, 관리형 캐시 정책 `CachingOptimized`, 관리형 응답 헤더 정책 `SecurityHeadersPolicy`(HSTS, X-Frame-Options 등), `PriceClass_200`, HTTP/2. 설명(Comment) `club-rag-hub web (09_web.sh)`로 다시 찾으니 바꾸지 마세요.
+   - 배포가 Deployed가 될 때까지 기다립니다(처음에는 5~10분). 버킷에 `index.html`이 없을 때만 확인용 임시 페이지를 올립니다. 진짜 화면을 올린 뒤에 다시 돌려도 덮어쓰지 않아요.
+   - `.state/outputs.env`에 `WEB_BUCKET`, `WEB_DISTRIBUTION_ID`, `WEB_DOMAIN`, `WEB_URL`을 적습니다.
+   - 배포가 이미 있으면 설정을 다시 적용하지 않고 건너뜁니다(다시 퍼지는 데 몇 분 걸림). 버킷 설정과 정책은 다시 적용합니다.
+2. `bash 07_cognito.sh`: 웹 앱 클라이언트 `club-rag-hub-web`을 만들고 ID를 `.state/outputs.env`의 `WEB_CLIENT_ID`에 적습니다.
+   - 비밀값 없음, OAuth 인가 코드 + PKCE, 범위 `openid email profile`, 로그인 공급자는 Cognito 사용자 풀만.
+   - 로그인 후 돌아갈 주소와 로그아웃 후 돌아갈 주소: `<WEB_URL>/`, `http://localhost:5500/`(로컬 개발). 끝의 `/`까지 정확히 같아야 해요.
+   - 토큰 유효 시간과 사용자 존재 오류 숨김은 MCP 클라이언트와 같습니다(액세스·ID 토큰 60분, 리프레시 토큰 30일).
+   - 로그인 화면은 MCP와 같은 기본 화면(managed login 버전 1)이라 따로 꾸미기 설정이 없습니다.
+
 ## MCP 서버 (AgentCore Gateway + Cognito)
 
 Claude 앱이나 Claude Code가 접속하는 MCP 서버입니다. Gateway가 MCP 통신과 로그인 확인(Cognito 토큰)을 맡고, 도구가 불리면 앱 스택의 도구 Lambda(`club-rag-hub-app-tools`)를 부릅니다.
@@ -85,13 +110,13 @@ Claude 앱 / Claude Code ──HTTPS + 로그인──▶ AgentCore Gateway ① 
 
 순서:
 
-1. `bash 07_cognito.sh`: 사용자 풀(메일 로그인, 가입 막음), 그룹 `ana`, 로그인 화면 도메인, 앱 클라이언트 2개, 연결 시험용 계정(`mcp-test@example.com`). 시험 계정 비밀번호는 `.state/mcp-test-user.env`에 적힙니다.
+1. `bash 07_cognito.sh`(먼저 `09_web.sh`): 사용자 풀(메일 로그인, 가입 막음), 그룹 `ana`, 로그인 화면 도메인, 앱 클라이언트 3개(MCP용 2개, 웹용 1개), 연결 시험용 계정(`mcp-test@example.com`). 시험 계정 비밀번호는 `.state/mcp-test-user.env`에 적힙니다.
 2. 앱 배포(`bash deploy_app.sh` 또는 main push): 도구 Lambda와 인터셉터 Lambda가 만들어집니다.
 3. `bash 08_mcp_gateway.sh`: Gateway 실행 역할, Gateway(요청 인터셉터 연결), 대상(도구 Lambda)을 만들고 주소를 `.state/outputs.env`의 `GATEWAY_URL`에 적습니다.
 4. `bash check_mcp.sh`: 토큰 없이 401과 로그인 안내가 오는지, 시험 계정으로 도구 목록과 ping 호출이 되는지, 로그인 그룹(`ana`)이 도구까지 오고 꾸민 그룹은 덮어쓰는지 확인합니다.
 
 - 도구 설명(이름, 설명, 입력 형식)은 `src/tools/tool_schema.json`에 있습니다. 고치면 `08_mcp_gateway.sh`를 다시 실행해야 Gateway에 반영돼요. 도구 코드는 앱 배포로 반영됩니다.
-- 앱 클라이언트는 두 개입니다. `club-rag-hub-mcp-claude`는 Claude가 브라우저 로그인에 쓰고(비밀값 없음, PKCE), `club-rag-hub-mcp-cli`는 점검 스크립트가 관리자 자격 증명으로 시험 계정 토큰을 받을 때 씁니다.
+- MCP용 앱 클라이언트는 두 개입니다. `club-rag-hub-mcp-claude`는 Claude가 브라우저 로그인에 쓰고(비밀값 없음, PKCE), `club-rag-hub-mcp-cli`는 점검 스크립트가 관리자 자격 증명으로 시험 계정 토큰을 받을 때 씁니다.
 - Cognito는 자동 등록(DCR)을 지원하지 않아서, Claude에 커넥터를 추가할 때 `MCP_CLIENT_ID_CLAUDE` 값을 직접 넣습니다.
 - 로그인 후 돌아갈 주소: `https://claude.ai/api/mcp/auth_callback`, `https://claude.com/api/mcp/auth_callback`, `http://localhost:8765/callback`(Claude Code, `--callback-port 8765`).
 - **인터셉터가 필요한 이유**: Gateway는 로그인 토큰(`Authorization` 헤더)을 도구 Lambda로 넘기지 않고, 넘기는 설정도 막습니다. 그래서 Gateway가 도구 Lambda를 부르기 직전에 요청 인터셉터 Lambda(`club-rag-hub-app-interceptor`)를 부르고, 인터셉터가 토큰의 그룹(`cognito:groups`)을 도구 입력값 `caller_groups`에 넣습니다.

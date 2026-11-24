@@ -1,20 +1,25 @@
 #!/usr/bin/env bash
-# 07. 로그인(Cognito): MCP 서버(AgentCore Gateway)에 들어올 사람의 계정
+# 07. 로그인(Cognito): 웹 챗봇과 MCP 서버(AgentCore Gateway)에 들어올 사람의 계정
 #     - 메일 주소로 로그인합니다. 가입은 막고 관리자가 계정을 만듭니다.
 #     - 앱 스택을 지웠다 다시 만들어도 계정이 남도록 SAM이 아니라 이 스크립트로 만듭니다.
 #     - 로그인 방식(메일 로그인)은 사용자 풀을 만든 뒤에 바꿀 수 없습니다.
+#     - 웹 앱 클라이언트가 웹 주소를 쓰므로 09_web.sh를 먼저 실행해야 합니다.
 #
-# 앱 클라이언트는 두 개입니다.
+# 앱 클라이언트는 세 개입니다.
 #   ${PREFIX}-mcp-claude : Claude 앱·Claude Code가 브라우저 로그인(OAuth 인가 코드 + PKCE)에 씀. 비밀값 없음
 #   ${PREFIX}-mcp-cli    : 점검 스크립트(check_mcp.sh)가 시험 계정 토큰을 받을 때 씀.
 #                          관리자 자격 증명(IAM)이 있어야만 토큰을 받는 방식이라 밖에서는 못 씀
+#   ${PREFIX}-web        : 웹 챗봇 화면이 브라우저 로그인(OAuth 인가 코드 + PKCE)에 씀. 비밀값 없음
 #
 # 연결 시험용 계정(mcp-test@example.com, 그룹 ana)도 만듭니다. 비밀번호는 .state/mcp-test-user.env에 적습니다.
 source "$(dirname "$0")/lib.sh"
 
+[ -n "${WEB_URL:-}" ] || die "웹 주소(WEB_URL)가 없습니다. 09_web.sh를 먼저 실행하세요."
+
 USER_POOL_NAME="${PREFIX}-users"
 CLAUDE_CLIENT_NAME="${PREFIX}-mcp-claude"
 CLI_CLIENT_NAME="${PREFIX}-mcp-cli"
+WEB_CLIENT_NAME="${PREFIX}-web"
 USER_GROUPS=(ana)                       # 동아리 그룹. kb-registry의 allowed_groups와 같은 이름
 CLAUDE_CODE_CALLBACK_PORT=8765          # Claude Code에 --callback-port로 같은 값을 줍니다
 # 로그인을 마치고 돌아갈 주소. 정확히 같아야 해서 하나씩 등록합니다.
@@ -22,6 +27,11 @@ CALLBACK_URLS=(
   "https://claude.ai/api/mcp/auth_callback"
   "https://claude.com/api/mcp/auth_callback"
   "http://localhost:${CLAUDE_CODE_CALLBACK_PORT}/callback"
+)
+# 웹 챗봇이 로그인·로그아웃 뒤 돌아갈 주소: CloudFront 주소(09_web.sh)와 로컬 개발 주소. 끝의 /까지 같아야 합니다.
+WEB_CALLBACK_URLS=(
+  "${WEB_URL}/"
+  "http://localhost:5500/"
 )
 TEST_USER="mcp-test@example.com"        # example.com은 실제로 메일이 가지 않는 예약 도메인
 TEST_USER_FILE=".state/mcp-test-user.env"
@@ -103,6 +113,16 @@ CLAUDE_CLIENT_ARGS=(
 CLI_CLIENT_ARGS=(
   --explicit-auth-flows ALLOW_ADMIN_USER_PASSWORD_AUTH ALLOW_REFRESH_TOKEN_AUTH
 )
+# 로그인 화면은 MCP와 같은 기본 화면(managed login 버전 1)이라 클라이언트별 꾸미기 설정이 필요 없습니다.
+WEB_CLIENT_ARGS=(
+  --explicit-auth-flows ALLOW_REFRESH_TOKEN_AUTH
+  --allowed-o-auth-flows code
+  --allowed-o-auth-flows-user-pool-client
+  --allowed-o-auth-scopes openid email profile
+  --callback-urls "${WEB_CALLBACK_URLS[@]}"
+  --logout-urls "${WEB_CALLBACK_URLS[@]}"
+  --supported-identity-providers COGNITO
+)
 
 upsert_client() {   # 사용법: upsert_client 이름 상태키 인자...
   local name="$1" key="$2" id
@@ -125,6 +145,8 @@ log "앱 클라이언트"
 upsert_client "$CLAUDE_CLIENT_NAME" MCP_CLIENT_ID_CLAUDE "${CLAUDE_CLIENT_ARGS[@]}"
 upsert_client "$CLI_CLIENT_NAME" MCP_CLIENT_ID_CLI "${CLI_CLIENT_ARGS[@]}"
 info "돌아갈 주소: ${CALLBACK_URLS[*]}"
+upsert_client "$WEB_CLIENT_NAME" WEB_CLIENT_ID "${WEB_CLIENT_ARGS[@]}"
+info "웹 돌아갈 주소·로그아웃 주소: ${WEB_CALLBACK_URLS[*]}"
 
 log "연결 시험용 계정 $TEST_USER (그룹 ana)"
 new_password() {   # 영문 소문자·숫자만 써서 명령줄 인자로 넘기기 쉽게 합니다.

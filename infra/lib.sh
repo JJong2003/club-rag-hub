@@ -78,6 +78,7 @@ fi
 # 리소스 이름 (모두 PREFIX에서 만들어집니다)
 DOCS_BUCKET="${PREFIX}-docs-${ACCOUNT_ID}"
 ARTIFACT_BUCKET="${PREFIX}-artifacts-${ACCOUNT_ID}"
+WEB_BUCKET="${PREFIX}-web-${ACCOUNT_ID}"
 VECTOR_BUCKET="${PREFIX}-vectors-${ACCOUNT_ID}"
 VECTOR_BUCKET_ARN="arn:aws:s3vectors:${AWS_REGION}:${ACCOUNT_ID}:bucket/${VECTOR_BUCKET}"
 RULE_TABLE="${PREFIX}-rule-sync-state"
@@ -94,3 +95,56 @@ DISTANCE_METRIC="cosine"
 # 태그 형식이 서비스마다 달라서 두 가지로 준비합니다.
 TAG_LIST="Key=${TAG_KEY},Value=${TAG_VALUE}"   # IAM, DynamoDB 형식
 TAG_MAP="${TAG_KEY}=${TAG_VALUE}"              # S3 Vectors, Bedrock 형식
+
+# 버킷 정책을 통째로 새로 적습니다. HTTPS가 아닌 요청은 모두 거부하고, 추가 문장이 있으면 뒤에 붙입니다.
+# 사용법: put_bucket_policy 버킷이름 [추가 문장(JSON 객체. 여러 개면 쉼표로 이어서)]
+put_bucket_policy() {
+  local b="$1" extra="${2:-}" more=""
+  if [ -n "$extra" ]; then
+    more=",
+    ${extra}"
+  fi
+  cat > "$TMP_DIR/tls-${b}.json" <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyInsecureTransport",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:*",
+      "Resource": [ "arn:aws:s3:::${b}", "arn:aws:s3:::${b}/*" ],
+      "Condition": { "Bool": { "aws:SecureTransport": "false" } }
+    }${more}
+  ]
+}
+EOF
+  aws s3api put-bucket-policy --bucket "$b" --policy "file://${TMP_DIR}/tls-${b}.json"
+}
+
+# 퍼블릭 차단, 기본 암호화, HTTPS 강제, 태그를 건 비공개 버킷을 만듭니다 (02, 09가 씀).
+# 버킷 정책은 통째로 바뀌므로, 정책에 더 넣을 문장이 있으면 세 번째 인자로 넘깁니다.
+# 사용법: make_private_bucket 버킷이름 on|off(버전 관리) [버킷 정책에 더할 문장]
+make_private_bucket() {
+  local b="$1" versioning="$2" extra="${3:-}"
+  if exists aws s3api head-bucket --bucket "$b"; then
+    skip "S3 버킷 $b"
+  else
+    aws s3api create-bucket --bucket "$b" \
+      --create-bucket-configuration "LocationConstraint=${AWS_REGION}" >/dev/null
+    aws s3api wait bucket-exists --bucket "$b"
+    ok "S3 버킷 $b 생성"
+  fi
+
+  aws s3api put-public-access-block --bucket "$b" \
+    --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+  aws s3api put-bucket-encryption --bucket "$b" \
+    --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+  if [ "$versioning" = "on" ]; then
+    aws s3api put-bucket-versioning --bucket "$b" --versioning-configuration Status=Enabled
+  fi
+
+  put_bucket_policy "$b" "$extra"
+  aws s3api put-bucket-tagging --bucket "$b" --tagging "TagSet=[{Key=${TAG_KEY},Value=${TAG_VALUE}}]"
+  ok "  퍼블릭 차단, 암호화, HTTPS 강제, 태그 적용 (버전 관리: $versioning)"
+}
